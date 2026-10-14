@@ -14,8 +14,8 @@ test.after(() => dirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true
 test('claudeDir: ~/.claude unless CLAUDE_CONFIG_DIR is set', () => {
   assert.equal(transcripts.claudeDir({}, '/home/u'), path.join('/home/u', '.claude'));
   assert.equal(transcripts.claudeDir({ CLAUDE_CONFIG_DIR: '  ' }, '/home/u'), path.join('/home/u', '.claude'));
-  assert.equal(transcripts.claudeDir({ CLAUDE_CONFIG_DIR: '/opt/claude-work' }, '/home/u'), '/opt/claude-work');
-  assert.equal(transcripts.claudeDir({ CLAUDE_CONFIG_DIR: '~/.claude-work' }, '/home/u'), '/home/u/.claude-work');
+  assert.equal(transcripts.claudeDir({ CLAUDE_CONFIG_DIR: '/opt/claude-work' }, '/home/u'), path.resolve('/opt/claude-work'));
+  assert.equal(transcripts.claudeDir({ CLAUDE_CONFIG_DIR: '~/.claude-work' }, '/home/u'), path.resolve('/home/u/.claude-work'));
 });
 
 test('encodeCwd replaces every non-alphanumeric character', () => {
