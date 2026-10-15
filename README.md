@@ -31,11 +31,13 @@ The panel lives in the Secondary Side Bar (the right-hand one). **Cmd+Alt+C** (C
 
 ## Install
 
-From the VS Code Marketplace or Open VSX: search for *Claude Sessions*. Or from a `.vsix`:
+Download the `.vsix` from the [latest release](https://github.com/bkaluza/vscode-claude-panel/releases/latest), then:
 
 ```bash
-code --install-extension claude-sessions-0.8.0.vsix
+code --install-extension claude-sessions-v0.9.0.vsix
 ```
+
+or run **Extensions: Install from VSIX…** from the Command Palette. It isn't on the VS Code Marketplace or Open VSX yet.
 
 ## Keys
 
@@ -96,8 +98,7 @@ panel shows a short notice instead of quietly showing less.
 
 - VS Code 1.106 or later.
 - The [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) CLI.
-- macOS or Linux, including Remote SSH, WSL and containers (the extension runs where Claude Code runs).
-  Windows isn't supported yet.
+- macOS, Linux or Windows, including Remote SSH, WSL and containers (the extension runs where Claude Code runs).
 
 ## Development
 

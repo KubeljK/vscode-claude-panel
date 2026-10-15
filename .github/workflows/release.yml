@@ -12,10 +12,14 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # The store steps are skipped until these secrets are set; the GitHub release is made either way.
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -37,14 +41,12 @@ jobs:
         run: npx --yes @vscode/vsce@4.0.0 package --out "claude-sessions-$GITHUB_REF_NAME.vsix"
 
       - name: Publish to the VS Code Marketplace
+        if: env.VSCE_PAT != ''
         run: npx --yes @vscode/vsce@4.0.0 publish --packagePath "claude-sessions-$GITHUB_REF_NAME.vsix"
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
         run: npx --yes ovsx@1.2.0 publish "claude-sessions-$GITHUB_REF_NAME.vsix"
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
       - name: GitHub release
         run: gh release create "$GITHUB_REF_NAME" "claude-sessions-$GITHUB_REF_NAME.vsix" --title "$GITHUB_REF_NAME" --generate-notes

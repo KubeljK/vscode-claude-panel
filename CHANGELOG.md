@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+
+- **Windows**: sessions get their titles (the drive letter's case no longer hides the workspace's transcripts) and
+  are linked to their terminals (the process table comes from PowerShell, since there's no `ps`). Thanks, Tin Pren.
+- Releases attach the `.vsix` to a GitHub release; the README's install steps point there.
+
 ## 0.8.2
 
 - New sessions now get the colour you picked inside Claude Code too: there's no command-line option for it, so
