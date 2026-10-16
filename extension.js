@@ -8,6 +8,7 @@ const usage = require('./usage');
 const subagents = require('./subagents');
 const transcripts = require('./transcripts');
 const order = require('./order');
+const colors = require('./colors');
 
 const CLAUDE_DIR = transcripts.claudeDir(); // ~/.claude, or $CLAUDE_CONFIG_DIR
 const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
@@ -306,7 +307,15 @@ function titleOf(id) {
   return transcripts.pickTitle(id, { alias: prefs()[id]?.alias, session: sessions.get(id), live: live.get(id) });
 }
 
-const colorOf = (id) => prefs()[id]?.color || sessions.get(id)?.color;
+const colorOf = (id) => colors.shown(prefs()[id], sessions.get(id)?.color);
+
+// Forget a pick Claude Code has moved on from, so a later /color back to the old colour doesn't bring it back.
+async function dropSupersededColors() {
+  for (const [id, p] of Object.entries(prefs())) {
+    const s = sessions.get(id);
+    if (s && colors.superseded(p, s.color)) await setPref(id, { color: undefined, colorWas: undefined });
+  }
+}
 
 function quote(a) {
   return /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`;
@@ -556,6 +565,8 @@ async function resume(id, { skip, fork, preserveFocus } = {}) {
   const base = ['--resume', id, ...(fork ? ['--fork-session'] : []), ...(alias ? ['-n', alias] : [])];
   const t = (!fork && idleTerminalNamed(title)) || createTerminal(fork ? `${title} (fork)` : title, colorOf(id), s.cwd);
   t.sendText(launchArgs(base, skip));
+  const color = !fork && colors.toSend(prefs()[id], s.color);
+  if (color) pendingColor.set(t, color);
   t.show(preserveFocus);
   pending.set(t, fork ? undefined : id);
   if (!fork) {
@@ -665,7 +676,11 @@ async function renameSession(id) {
 async function recolorSession(id) {
   const color = await pickColor('Session colour');
   if (color === undefined) return;
-  return setPref(id, { color: color || undefined });
+  const pick = color || 'default';
+  // Claude Code gets it as /color: here once the session is idle, otherwise when it's next resumed from the panel.
+  const t = live.get(id)?.terminal;
+  if (t) pendingColor.set(t, pick);
+  return setPref(id, { color: pick, colorWas: colors.fromClaude(sessions.get(id)?.color) });
 }
 
 const notReopened = () => order.arrange(manualOrder(), remembered()).filter((id) => !live.get(id)?.terminal && sessions.has(id));
@@ -817,6 +832,7 @@ async function tick() {
   polling = true;
   try {
     await scan();
+    await dropSupersededColors();
     await pollLive();
     await subagents.update(sessions, live);
     const n = transcripts.formatNotice(liveFormat, scanned);
