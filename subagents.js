@@ -10,8 +10,10 @@
 // parent agents' transcripts are scanned the same way, only when they have children.
 const fs = require('fs');
 const path = require('path');
+const activity = require('./activity');
 
 const RECENT = 100; // agents per session sent to the panel, newest first
+const QUIET = 10 * 60 * 1000; // a running agent with no transcript write for this long is shown as quiet
 const RESUME_SLACK = 15000; // transcript written this long after its completion = the agent was resumed
 
 const NOTE_RE = /<task-id>([\w-]+)<\/task-id>/g;
@@ -44,6 +46,11 @@ function lineTime(text, i) {
  * Collects completions from newly appended transcript text into `info`:
  * info.agentDone (agentId → { at, status }) and info.toolDone (toolUseId → at).
  */
+const ago = (ms) => {
+  const m = Math.round(ms / 60000);
+  return m < 60 ? `${m}m` : m < 48 * 60 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+};
+
 function scanText(info, text) {
   if (text.includes('<task-id>')) {
     NOTE_RE.lastIndex = 0;
@@ -85,7 +92,9 @@ async function scanAgentFile(file, size) {
       const buf = Buffer.alloc(size - c.offset);
       await fh.read(buf, 0, buf.length, c.offset);
       const end = buf.lastIndexOf(10) + 1;
-      scanText(c.info, buf.toString('utf8', 0, end));
+      const text = buf.toString('utf8', 0, end);
+      scanText(c.info, text);
+      c.info.act = activity.scan(c.info.act, text, { sidechain: true });
       c.offset += end;
     } finally {
       await fh.close();
@@ -124,7 +133,7 @@ async function startOf(file, st) {
  * Re-reads the subagents of the sessions the panel shows. `sessions` and `live` are extension.js's maps;
  * an agent can only be running while its session's Claude process is (and was started by that process).
  */
-async function update(sessions, live) {
+async function update(sessions, live, now = Date.now()) {
   if (requested.size) wanted = requested;
   requested = new Set();
   await Promise.all(
@@ -164,9 +173,13 @@ async function update(sessions, live) {
 
       const agents = raw.map((a) => {
         const { meta, st } = a;
-        const src = meta.parentAgentId ? parents.get(meta.parentAgentId) || {} : s;
-        const note = src.agentDone?.get(a.aid);
-        let doneAt = Math.max(note?.at || 0, src.toolDone?.get(meta.toolUseId) || 0);
+        // A nested agent's completion goes to its parent agent, or to the session once the parent has finished
+        // (e.g. when it was resumed later): the latest of the two counts.
+        const srcs = meta.parentAgentId ? [parents.get(meta.parentAgentId) || {}, s] : [s];
+        const note = srcs
+          .map((x) => x.agentDone?.get(a.aid))
+          .reduce((best, n) => (n && (!best || n.at > best.at) ? n : best), undefined);
+        let doneAt = Math.max(note?.at || 0, ...srcs.map((x) => x.toolDone?.get(meta.toolUseId) || 0));
         let status = note && note.at >= doneAt ? note.status : doneAt ? 'completed' : '';
         if (meta.stoppedByUser && a.metaMtime > doneAt) {
           doneAt = a.metaMtime;
@@ -189,6 +202,23 @@ async function update(sessions, live) {
           end: state === 'run' ? 0 : Math.round(resumed || !doneAt ? st.mtimeMs : doneAt),
         };
       });
+      // What the running ones are doing: from their own transcripts, appended bytes only.
+      await Promise.all(
+        agents.map(async (x, i) => {
+          if (x.state !== 'run') return;
+          const { st } = raw[i];
+          const info = await scanAgentFile(raw[i].file, st.size).catch(() => undefined);
+          // Ended on its final reply and quiet since: it's done, even if no completion notice was found.
+          if (info?.act?.last === 'end' && now - st.mtimeMs > RESUME_SLACK) {
+            Object.assign(x, { state: 'done', end: Math.round(st.mtimeMs) });
+            return;
+          }
+          const line = activity.describe(info?.act, 'busy');
+          // Running but silent for a while: say so, it may be stuck (or in one long command).
+          const quiet = now - st.mtimeMs > QUIET ? `Quiet for ${ago(now - st.mtimeMs)}` : '';
+          if (line || quiet) x.activity = [quiet, line].filter(Boolean).join(' · ');
+        })
+      );
       const latest = (a) => (a.state === 'run' ? Infinity : a.end);
       agents.sort((a, b) => latest(b) - latest(a) || b.start - a.start);
       bySession.set(id, { dir, key, agents: agents.slice(0, RECENT) });

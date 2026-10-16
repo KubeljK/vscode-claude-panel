@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.10.0
+
+- **Activity line**: a live session's card says what it's doing now: *Editing extension.js*, *Running npm test*,
+  *Searching for 'foo'*, *Running 2 agents*, *Thinking…*, *Waiting: permission prompt*. Its last prompt shrinks to
+  one line meanwhile. Running subagents show their current step in place of "running".
+- **Read-only view**: a session's transcript in an editor tab, following it live. Prompts, replies (with code,
+  bold and lists), tool calls with their input and result, errors in red, subagent calls and completions with
+  *Open subagent view*, compactions, turn times, and a header with status, model, branch and context use. Opens
+  from the `⋯` menu, **Session Panel: Open Read-only View…**, or by clicking a subagent (which opened the raw JSONL
+  before; *Raw file* in the view still does).
+- Both are read from the transcript, so they trail by one block: Claude Code writes a block when it's finished.
+- Clicking a session that's *running elsewhere* opens it read-only instead of offering to resume it a second time.
+  Resuming it here is *Open here as well…* in its `⋯` menu, which explains the choices: view read-only, continue
+  in a copy, or open the same session here too.
+- Sessions running elsewhere that were started in another folder now open read-only too (*View read-only* did
+  nothing for them), and their cards get their title, folder, branch, context use and subagents. *Continue in a
+  copy* starts in their folder. One with no transcript yet says so.
+- A session whose turn is over while its background agents run says *Waiting for 2 agents* instead of
+  *Thinking…*; with none left it says *Finishing…* until Claude Code reports it idle.
+- Subagents no longer stay *running* after they've finished:
+  - a nested agent resumed after its parent agent had finished reports its completion to the session, and that
+    now counts too;
+  - an agent whose transcript ends on its final reply and hasn't changed since is shown as done, even when no
+    completion notice was found.
+- A running subagent with no transcript writes for 10 minutes says *Quiet for 40m* in front of its step, so a
+  stuck one stands out (it may also just be in one long command).
+
 ## 0.9.0
 
 - **Windows**: sessions get their titles (the drive letter's case no longer hides the workspace's transcripts) and

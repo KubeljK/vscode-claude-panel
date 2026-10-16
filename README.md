@@ -11,7 +11,11 @@ terminals, and reopen them after a restart.
 ## What it does
 
 - **Every session for this workspace**, grouped into *Open in this window*, *Running elsewhere*, *Pinned*, then
-  *Today / Yesterday / This week / Older*. Each shows its name, colour, last prompt, folder and branch.
+  *Today / Yesterday / This week / Older*. Each shows its name, colour, last prompt, folder and branch. Clicking one
+  running elsewhere opens it read-only, so the other window's session is never resumed twice by accident.
+- **What it's doing now**: a live session's card has one line for its current step: *Editing extension.js*,
+  *Running npm test*, *Searching for 'foo'*, *Running 2 agents*, *Thinking…*, or *Waiting: permission prompt*.
+  Running subagents show theirs too.
 - **Live status**: *Working*, *Needs you* (a permission prompt, say), *Idle*, or *Done* when it finished while you
   were looking at something else. That also gives a notification, a badge on the panel icon and a bell in the
   status bar. Sessions you started by hand in a terminal are picked up too.
@@ -20,12 +24,16 @@ terminals, and reopen them after a restart.
 - **Remembers what was open**: after a restart it offers to reopen them. A session is forgotten only when you close
   its terminal or exit Claude in it.
 - **Subagents**: a session that spawned agents shows *› N agents · M running*; expand it to list them with their
-  state and elapsed time, and click one to open its transcript.
+  state and elapsed time, and click one to open it in a read-only view.
+- **Read-only view** of a session's transcript in an editor tab, following it live: your prompts, Claude's replies,
+  tool calls with their input and results, subagents (open each in its own view), compactions and turn times.
+  From the `⋯` menu or **Session Panel: Open Read-only View…**.
 - **Context usage**: a bar with tokens in use against the context window.
 - **Current session**: the one whose terminal is active is framed in its colour.
 - **Your order**: drag open and pinned sessions within their section, or Alt+Up / Alt+Down. Cmd+1–9 follow it.
 - **Skip permissions** switch adds `--dangerously-skip-permissions` to every launch.
-- `⋯` menu: rename, colour, pin, hide, move up / down, fork, open the transcript, copy the id or the resume command.
+- `⋯` menu: rename, colour, pin, hide, move up / down, fork, open the read-only view or the raw transcript, copy the
+  id or the resume command.
 
 The panel lives in the Secondary Side Bar (the right-hand one). **Cmd+Alt+C** (Ctrl+Alt+C) shows it.
 
@@ -34,7 +42,7 @@ The panel lives in the Secondary Side Bar (the right-hand one). **Cmd+Alt+C** (C
 Download the `.vsix` from the [latest release](https://github.com/bkaluza/vscode-claude-panel/releases/latest), then:
 
 ```bash
-code --install-extension claude-sessions-v0.9.0.vsix
+code --install-extension claude-sessions-v0.10.0.vsix
 ```
 
 or run **Extensions: Install from VSIX…** from the Command Palette. It isn't on the VS Code Marketplace or Open VSX yet.
@@ -87,6 +95,19 @@ terminals in the terminal panel in the order they opened. Once you drag a sessio
 editor tabs are moved to match. Drag a terminal tab yourself and the panel follows. Terminals in the terminal
 panel can't be reordered by an extension, so only the panel's list changes for them. *Pinned* keeps the order you
 give it across workspaces; newly pinned sessions go to the end.
+
+**Activity line and read-only view.** Both come from the transcript, which Claude Code writes one content block at a
+time, when the block is complete. So they're a step behind: a reply or a tool call shows up once it's finished,
+never while it's being written. While a session is busy the view ends with *Working…* (and the card says what the
+last finished step implies: a tool call without its result is running, otherwise *Thinking…*). Most thinking blocks
+are written without their text, so they show as *Thinking…* only. Commands are shortened on the card and stop
+before anything that looks like a credential; only file names are shown, not paths.
+
+The view opens on the last 4 MB of a transcript (*Load earlier entries* reads further back) and keeps up to 1,500
+entries as it grows; long tool input and output is cut at about 4,000 characters (*Raw file* opens the JSONL). It
+watches the file for changes, with the panel's 2-second poll as a fallback. It is read-only: nothing in it can send
+anything to the session, transcript text is shown as text (no links, HTML or images), and closing the tab stops
+the watching. Views don't come back after a window reload.
 
 It launches `claude --resume <id>` in terminals and writes nothing to Claude Code's files. **Nothing leaves your
 machine**: no network requests, no telemetry.

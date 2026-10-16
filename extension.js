@@ -8,6 +8,8 @@ const usage = require('./usage');
 const subagents = require('./subagents');
 const transcripts = require('./transcripts');
 const order = require('./order');
+const activity = require('./activity');
+const viewerPanel = require('./viewerPanel');
 
 const CLAUDE_DIR = transcripts.claudeDir(); // ~/.claude, or $CLAUDE_CONFIG_DIR
 const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
@@ -36,6 +38,8 @@ let statusItem;
 
 /** id → session info, from the last scan */
 let sessions = new Map();
+/** id → transcript file of a live session that isn't in the workspace's project folders (started elsewhere) */
+const elsewhereFiles = new Map();
 /** id → live record (from LIVE_DIR) plus `terminal` when it runs in one of this window's terminals */
 let live = new Map();
 /** terminal → session id (or undefined for a new session), for terminals Claude hasn't registered yet */
@@ -138,6 +142,29 @@ async function scan() {
   const infos = await Promise.all(files.map((f) => transcripts.readSession(f).catch(() => undefined)));
   scanned = infos.filter(Boolean);
   sessions = new Map(scanned.filter((s) => s.hasMessages).map((s) => [s.id, s]));
+  await scanElsewhere();
+}
+
+// Live sessions started in another folder have their transcript in that folder's project folder: read those
+// too, so their cards, read-only views, subagents and resume (which needs their cwd) work like the others.
+async function scanElsewhere() {
+  for (const id of elsewhereFiles.keys()) if (!live.has(id) || sessions.has(id)) elsewhereFiles.delete(id);
+  for (const [id, l] of live) {
+    if (sessions.has(id)) continue;
+    const file = await transcriptOf(id, l.cwd);
+    const info = file && (await transcripts.readSession(file).catch(() => undefined));
+    if (info?.hasMessages) sessions.set(id, info);
+  }
+}
+
+// Cached once found: a transcript stays where it was first written.
+async function transcriptOf(id, cwd) {
+  const known = elsewhereFiles.get(id);
+  if (known && fs.existsSync(known)) return known;
+  const file = await transcripts.findTranscript(PROJECTS_DIR, id, cwd);
+  if (file) elsewhereFiles.set(id, file);
+  else elsewhereFiles.delete(id);
+  return file;
 }
 
 // ---------------------------------------------------------------- live sessions
@@ -541,14 +568,25 @@ async function resume(id, { skip, fork, preserveFocus } = {}) {
     return refresh();
   }
   if (e && !e.terminal && !fork) {
+    const view = 'View read-only';
+    const copy = 'Continue in a copy';
     const choice = await vscode.window.showWarningMessage(
-      `"${titleOf(id)}" is already running in another window or terminal. Opening it twice makes the two copies diverge.`,
-      { modal: true },
-      'Open anyway',
-      'Open a fork'
+      `"${titleOf(id)}" is running in another window or terminal.`,
+      {
+        modal: true,
+        detail:
+          `${view} follows it live without touching it.\n\n` +
+          `${copy} starts a new session here from its history; the original keeps running on its own.\n\n` +
+          'Open here too resumes the same session a second time. Both would then add to one conversation and drift ' +
+          'apart, so only do this if the other one has stopped.',
+      },
+      view,
+      copy,
+      'Open here too'
     );
     if (!choice) return;
-    fork = choice === 'Open a fork';
+    if (choice === view) return openView(id);
+    fork = choice === copy;
   }
   const s = sessions.get(id) || {};
   const title = titleOf(id);
@@ -613,14 +651,20 @@ async function moreActions(id) {
       run: () => resume(id, { skip: !skip }),
     },
     { label: '$(repo-forked) Fork into a new session', run: () => resume(id, { fork: true }) },
+    ...(live.get(id) && !live.get(id).terminal ? [{ label: '$(play) Open here as well…', run: () => resume(id) }] : []),
     ...(live.get(id)?.terminal ? [{ label: '$(close) Close session', run: closeSession }] : []),
     { label: '', kind: vscode.QuickPickItemKind.Separator },
+    { label: '$(eye) Open read-only view', run: openView },
     {
       label: '$(go-to-file) Open transcript file',
       run: () => s.file && vscode.window.showTextDocument(vscode.Uri.file(s.file)),
     },
     { label: '$(copy) Copy session id', run: () => vscode.env.clipboard.writeText(id) },
-    { label: '$(copy) Copy resume command', run: () => vscode.env.clipboard.writeText(launchArgs(['--resume', id])) },
+    {
+      label: '$(copy) Copy resume command',
+      // claude --resume only finds a session from the folder it was started in.
+      run: () => vscode.env.clipboard.writeText((s.cwd ? `cd ${quote(s.cwd)} && ` : '') + launchArgs(['--resume', id])),
+    },
   ];
   const pick = await vscode.window.showQuickPick(items, { title: titleOf(id) });
   return pick?.run?.(id);
@@ -725,6 +769,59 @@ async function quickPickResume() {
   if (picked?.length) await resumeMany(picked.map((p) => p.id));
 }
 
+// ---------------------------------------------------------------- read-only views
+
+// A session running elsewhere may have started since the last poll: its transcript is looked up then.
+async function openView(id) {
+  const file = sessions.get(id)?.file || (live.has(id) && (await transcriptOf(id, live.get(id).cwd)));
+  if (file) return viewerPanel.open({ file, kind: 'session', sessionId: id, title: titleOf(id) });
+  vscode.window.showInformationMessage(`"${titleOf(id)}" has no transcript yet; it's written once the session has a first message.`);
+}
+
+// `file` when the view of another transcript asked (viewer.agentFile checked it); else from the panel's list.
+function openAgentView(sessionId, agentId, file = subagents.transcript(sessionId, agentId)) {
+  if (!file || !fs.existsSync(file)) return;
+  let meta = {};
+  try {
+    meta = JSON.parse(fs.readFileSync(file.replace(/\.jsonl$/, '.meta.json'), 'utf8')) || {};
+  } catch {}
+  const title = typeof meta.description === 'string' ? meta.description : typeof meta.agentType === 'string' ? meta.agentType : 'Subagent';
+  viewerPanel.open({ file, kind: 'agent', sessionId, agentId, title });
+}
+
+const runningAgents = (agents) => agents.filter((a) => a.state === 'run').length;
+
+// The view's header: its title and what the session or agent is doing, from the same state the panel shows.
+function describeView(t) {
+  if (t.kind === 'agent') {
+    const a = subagents.get(t.sessionId).find((x) => x.id === t.agentId);
+    return { kind: 'agent', title: a?.desc || t.title, agentType: a?.type || '', status: a?.state || '', activity: a?.activity || '' };
+  }
+  const l = live.get(t.sessionId);
+  const agents = runningAgents(subagents.get(t.sessionId));
+  return {
+    kind: 'session',
+    title: titleOf(t.sessionId),
+    status: l?.status || '',
+    waitingFor: l?.status === 'waiting' ? l.waitingFor || '' : '',
+    activity: l ? activity.describe(sessions.get(t.sessionId)?.act, l.status, l.waitingFor, { agents }) : '',
+  };
+}
+
+async function pickView(id) {
+  if (typeof id === 'string') return openView(id);
+  const items = [...sessions.values()]
+    .filter((s) => !prefs()[s.id]?.hidden || live.has(s.id))
+    .sort((a, b) => !!live.has(b.id) - !!live.has(a.id) || b.mtime - a.mtime)
+    .map((s) => ({
+      label: `${live.has(s.id) ? '$(pulse) ' : ''}${titleOf(s.id)}`,
+      description: [ago(s.mtime), s.cwd && path.basename(s.cwd)].filter(Boolean).join(' · '),
+      id: s.id,
+    }));
+  const pick = await vscode.window.showQuickPick(items, { title: 'Open a read-only view of a session', matchOnDescription: true });
+  if (pick) openView(pick.id);
+}
+
 // ---------------------------------------------------------------- panel
 
 // Terminals open in the panel by default. Once you have a session open there, the panel offers the split layout,
@@ -745,6 +842,13 @@ function currentSession() {
   return { id, behind: !!tab && !(tab.isActive && tab.group.isActive) };
 }
 
+// A subfolder relative to the workspace; a folder outside it (a session started elsewhere) by its name.
+function folderOf(cwd, root) {
+  if (!cwd || !root || cwd === root) return '';
+  const rel = path.relative(root, cwd);
+  return rel.startsWith('..') || path.isAbsolute(rel) ? path.basename(cwd) : rel;
+}
+
 function payload() {
   const all = prefs();
   const current = currentSession();
@@ -759,13 +863,14 @@ function payload() {
     const p = all[id] || {};
     const l = live.get(id);
     const title = titleOf(id);
+    const agents = subagents.get(id);
     return {
       id,
       title,
       color: colorOf(id) || '',
       lastPrompt: s.lastPrompt && s.lastPrompt !== title ? s.lastPrompt : '',
       mtime: s.mtime || l?.updatedAt || Date.now(),
-      folder: s.cwd && root && s.cwd !== root ? path.relative(root, s.cwd) : '',
+      folder: folderOf(s.cwd, root),
       branch: s.branch && s.branch !== 'HEAD' ? s.branch : '',
       pinned: !!p.pinned,
       hidden: !!p.hidden,
@@ -773,10 +878,12 @@ function payload() {
       elsewhere: !!l && !l.terminal,
       status: l?.status || '',
       waitingFor: l?.status === 'waiting' ? l.waitingFor || '' : '',
+      // "Editing extension.js", or "Waiting for 2 agents" once its turn is over, while live
+      activity: l ? activity.describe(s.act, l.status, l.waitingFor, { agents: runningAgents(agents) }) : '',
       unread: unread.has(id),
       current: id === current.id ? (current.behind ? 'behind' : 'front') : '',
       ctx: usage.forPayload(s, cfg().get('contextWindow')), // [tokens in use, window size]
-      agents: subagents.get(id),
+      agents,
     };
   });
   return {
@@ -823,6 +930,7 @@ async function tick() {
     formatMisses = n ? formatMisses + 1 : 0;
     formatNotice = formatMisses >= 3 ? n : ''; // not for a record caught mid-write
     refresh();
+    viewerPanel.poll(); // read-only views: anything fs.watch missed, and their live status
   } catch (e) {
     console.error('[claude-sessions]', e);
   } finally {
@@ -865,8 +973,11 @@ async function handleMessage(m) {
       return refresh();
     case 'open':
       return resumeMany(m.ids);
-    case 'focus':
-      return resume(m.id);
+    case 'focus': {
+      // A session running elsewhere opens read-only; resuming it here is in its ⋯ menu.
+      const l = live.get(m.id);
+      return l && !l.terminal ? openView(m.id) : resume(m.id);
+    }
     case 'new':
       return newSession();
     case 'refresh':
@@ -879,10 +990,8 @@ async function handleMessage(m) {
       return setPref(m.id, { hidden: false });
     case 'more':
       return moreActions(m.id);
-    case 'openAgent': {
-      const file = subagents.transcript(m.id, m.agent);
-      return file && vscode.window.showTextDocument(vscode.Uri.file(file), { preview: true });
-    }
+    case 'openAgent':
+      return openAgentView(m.id, m.agent);
     case 'reopenLast':
       return restoreLast();
     case 'dismissLast':
@@ -901,6 +1010,11 @@ function activate(ctx) {
   context = ctx;
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusItem.command = 'claudeSessions.showPanel';
+  viewerPanel.init({
+    extensionUri: ctx.extensionUri,
+    describe: describeView,
+    openAgent: (t, agentId, file) => openAgentView(t.sessionId, agentId, file),
+  });
 
   ctx.subscriptions.push(
     statusItem,
@@ -914,6 +1028,8 @@ function activate(ctx) {
       vscode.commands.executeCommand('claudeSessions.panel.focus')
     ),
     vscode.commands.registerCommand('claudeSessions.moveToSplit', moveSessionsToSplit),
+    vscode.commands.registerCommand('claudeSessions.openViewer', pickView),
+    { dispose: viewerPanel.disposeAll },
     vscode.commands.registerCommand('claudeSessions.enableSlotKeysInTerminal', enableSlotKeysInTerminal),
     vscode.window.tabGroups.onDidChangeTabs((e) => {
       keepFilesLeft(e);

@@ -22,6 +22,31 @@ test('encodeCwd replaces every non-alphanumeric character', () => {
   assert.equal(transcripts.encodeCwd('/home/dev/acme-web_2.0'), '-home-dev-acme-web-2-0');
 });
 
+test('findTranscript: the live cwd\'s project folder first, then any other, else undefined', async () => {
+  const projects = tmp();
+  const id = '7d1e2f3a-4b5c-4d6e-8f9a-0b1c2d3e4f5a';
+  const put = (dir, name = `${id}.jsonl`) => {
+    fs.mkdirSync(path.join(projects, dir), { recursive: true });
+    fs.writeFileSync(path.join(projects, dir, name), '{}\n');
+    return path.join(projects, dir, name);
+  };
+  assert.equal(await transcripts.findTranscript(projects, id, '/home/dev/other'), undefined);
+  assert.equal(await transcripts.findTranscript(path.join(projects, 'missing'), id, '/home/dev/other'), undefined);
+
+  put('-home-dev-other', 'another-session.jsonl');
+  const moved = put('-home-dev-moved');
+  assert.equal(await transcripts.findTranscript(projects, id, '/home/dev/other'), moved); // changed directory
+  assert.equal(await transcripts.findTranscript(projects, id), moved); // no cwd known
+
+  const home = put('-home-dev-other');
+  assert.equal(await transcripts.findTranscript(projects, id, '/home/dev/other'), home);
+
+  fs.mkdirSync(path.join(projects, '-home-dev-dir', `${id}.jsonl`), { recursive: true }); // not a file
+  assert.ok([moved, home].includes(await transcripts.findTranscript(projects, id, '/home/dev/dir')));
+
+  for (const bad of ['../x', 'a/b', '', undefined]) assert.equal(await transcripts.findTranscript(projects, bad, '/home/dev/other'), undefined);
+});
+
 test('readChunk: titles, colour, last prompt, branch, cwd, usage', () => {
   const info = {};
   transcripts.readChunk(info, fixture('session-part1.jsonl'));

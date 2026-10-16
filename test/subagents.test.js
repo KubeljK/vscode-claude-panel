@@ -10,6 +10,7 @@ const SID = '0f2c3d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
 const dirs = [];
 test.after(() => dirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 const T = (hms) => Date.parse(`2026-03-02T${hms}.000Z`);
+const NOW = T('10:21:00');
 
 // When each agent's files were last written (the fixture's timestamps say when things were reported).
 const MTIMES = {
@@ -22,6 +23,9 @@ const MTIMES = {
   a07parent: '10:25:00',
   a08child: '10:15:00',
   a09child: '10:24:00',
+  a10nested: '10:22:00', // nested, resumed after its parent finished: its last completion is in the session
+  a11ended: '10:18:00', // ended on its final reply, no completion notice
+  a12quiet: '10:05:00', // running, silent since
 };
 
 /** A copy of the fixture project with file times set, and the session read the way extension.js reads it. */
@@ -41,7 +45,7 @@ async function setup() {
 
 async function agentsOf(sessions, live) {
   subagents.get(SID); // the panel asks for a session before update() reads it
-  await subagents.update(sessions, live);
+  await subagents.update(sessions, live, NOW);
   return Object.fromEntries(subagents.get(SID).map((a) => [a.id, a]));
 }
 
@@ -53,7 +57,7 @@ test('scanText collects notifications and foreground results, not "launched" res
   subagents.scanText(info, text.slice(0, mid));
   assert.equal(info.toolDone, undefined); // the foreground call has no result yet
   subagents.scanText(info, text.slice(mid));
-  assert.deepEqual([...info.agentDone.keys()].sort(), ['a01done', 'a02fail', 'a06resumed']);
+  assert.deepEqual([...info.agentDone.keys()].sort(), ['a01done', 'a02fail', 'a06resumed', 'a10nested']);
   assert.deepEqual(info.agentDone.get('a02fail'), { at: T('10:06:00'), status: 'failed' });
   assert.deepEqual([...info.toolDone.keys()], ['toolu_03Fg']);
   assert.equal(info.toolDone.get('toolu_03Fg'), T('10:07:00'));
@@ -74,6 +78,9 @@ test('while the session runs: running, done, failed, stopped, resumed, nested', 
     a07parent: 'run',
     a08child: 'done', // nested: completion is in the parent agent's transcript
     a09child: 'run',
+    a10nested: 'done',
+    a11ended: 'done',
+    a12quiet: 'run',
   });
   assert.equal(a.a08child.depth, 2);
   assert.equal(a.a01done.depth, 1);
@@ -82,9 +89,15 @@ test('while the session runs: running, done, failed, stopped, resumed, nested', 
   assert.equal(a.a01done.start, T('10:01:02')); // first timestamp of its transcript
   assert.equal(a.a01done.end, T('10:05:00'));
   assert.equal(a.a04run.end, 0);
+  assert.equal(a.a04run.activity, 'Reading migrate.sql'); // from its own transcript, while it runs
+  assert.equal(a.a09child.activity, 'Thinking…');
+  assert.equal(a.a10nested.end, T('10:22:01'));
+  assert.equal(a.a11ended.end, T('10:18:00'));
+  assert.equal(a.a12quiet.activity, 'Quiet for 16m · Running npm run load-test');
+  assert.equal(a.a01done.activity, undefined);
   // Running first, then most recently finished.
   const order = subagents.get(SID).map((x) => x.id);
-  assert.deepEqual(order.slice(4), ['a08child', 'a05stop', 'a03fg', 'a02fail', 'a01done']);
+  assert.deepEqual(order.slice(5), ['a10nested', 'a11ended', 'a08child', 'a05stop', 'a03fg', 'a02fail', 'a01done']);
   assert.equal(subagents.transcript(SID, 'a04run').endsWith(path.join('subagents', 'agent-a04run.jsonl')), true);
   assert.equal(subagents.transcript(SID, '../x'), undefined);
 });

@@ -384,11 +384,11 @@
     const when = `Started ${new Date(a.start).toLocaleString()}${run ? '' : `, ${AGENT_STATES[a.state]} ${new Date(a.end).toLocaleString()}`}`;
     return `
         <button class="agent a-${a.state}${a.depth > 1 ? ` depth-${Math.min(a.depth, 3)}` : ''}" data-act="agent" data-agent="${esc(a.id)}"
-                title="${esc(`${a.desc}\n${when}\nOpen transcript`)}">
+                title="${esc(`${a.desc}\n${when}\nOpen read-only view`)}">
           <span class="agent-dot"></span>
           <span class="agent-desc">${esc(a.desc)}</span>
           ${time}
-          <span class="agent-sub">${esc([a.type, AGENT_STATES[a.state]].filter(Boolean).join(' · '))}</span>
+          <span class="agent-sub">${esc([a.type, (run && a.activity) || AGENT_STATES[a.state]].filter(Boolean).join(' · '))}</span>
         </button>`;
   }
 
@@ -416,6 +416,13 @@
       </div>`;
   }
 
+  // What a live session is doing now ("Editing extension.js"), or what it waits for. Derived from the transcript, so
+  // a step behind: Claude Code writes each block when it's finished.
+  function activityLine(s) {
+    if (!s.activity) return '';
+    return `<div class="activity${s.status === 'waiting' ? ' waiting' : ''}" title="${esc(s.activity)}">${esc(s.activity)}</div>`;
+  }
+
   // ⌘1…⌘9 jump to the first nine open sessions, in openOrder (unless claudeSessions.sessionShortcuts is off).
   function slotHint(s) {
     const i = s.open && state.shortcuts ? state.openOrder.indexOf(s.id) : -1;
@@ -434,7 +441,7 @@
       ? `<span class="check live" title="Open in this window"><span class="live-dot"></span></span>`
       : `<label class="check" title="Select"><input type="checkbox" ${selected ? 'checked' : ''} aria-label="Select ${esc(s.title)}"></label>`;
     return `
-      <div class="card c-${color}${s.open ? ' open' : ''}${selected ? ' selected' : ''}${s.unread ? ' unread' : ''}${s.current ? ` current ${s.current}` : ''}"
+      <div class="card c-${color}${s.open ? ' open' : ''}${s.activity ? ' active' : ''}${selected ? ' selected' : ''}${s.unread ? ' unread' : ''}${s.current ? ` current ${s.current}` : ''}"
            role="listitem" tabindex="0" data-id="${esc(s.id)}" data-act="open"
            ${movable ? 'draggable="true" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"' : ''}
            title="${s.current ? 'Current terminal' : s.open ? 'Show terminal' : 'Resume in a new terminal'}"
@@ -447,6 +454,7 @@
             ${statusPill(s)}
           </div>
           ${s.lastPrompt ? `<div class="prompt">${esc(s.lastPrompt)}</div>` : ''}
+          ${activityLine(s)}
           <div class="foot">
           ${meta.length ? `<div class="meta">${meta.map(esc).join('<span class="sep">·</span>')}</div>` : ''}
           ${ctxRow(s)}

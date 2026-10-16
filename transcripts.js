@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const usage = require('./usage');
 const subagents = require('./subagents');
+const activity = require('./activity');
 
 /** Claude Code's config dir: $CLAUDE_CONFIG_DIR when set (Claude Code's own override), else ~/.claude. */
 function claudeDir(env = process.env, home = os.homedir()) {
@@ -15,6 +16,24 @@ function claudeDir(env = process.env, home = os.homedir()) {
 
 // Claude Code names a project folder after the cwd with every non-alphanumeric char replaced by '-'.
 const encodeCwd = (p) => p.replace(/[^a-zA-Z0-9]/g, '-');
+
+/**
+ * Where a session's transcript is when it isn't in the workspace's project folders (started in another folder):
+ * the folder of the cwd its live record gives, else any project folder, if it changed directory since. No fold
+ * for Windows casing as in projectDirs(): its file system ignores case anyway. undefined: none written yet.
+ */
+async function findTranscript(projectsDir, id, cwd) {
+  if (typeof id !== 'string' || !/^[\w-]+$/.test(id)) return undefined;
+  const name = `${id}.jsonl`;
+  const isFile = (f) => fs.promises.stat(f).then((st) => st.isFile(), () => false);
+  const first = typeof cwd === 'string' && cwd ? path.join(projectsDir, encodeCwd(cwd), name) : undefined;
+  if (first && (await isFile(first))) return first;
+  for (const d of await fs.promises.readdir(projectsDir, { withFileTypes: true }).catch(() => [])) {
+    const f = path.join(projectsDir, d.name, name);
+    if (d.isDirectory() && f !== first && (await isFile(f))) return f;
+  }
+  return undefined;
+}
 
 const STR = '"((?:[^"\\\\]|\\\\.)*)"';
 const FIELDS = [
@@ -56,6 +75,7 @@ function readChunk(info, text) {
   info.lines = (info.lines || 0) + lines;
   Object.assign(info, usage.scan(text));
   subagents.scanText(info, text); // subagent completions, for subagents.update()
+  info.act = activity.scan(info.act, text); // what it's doing now, for the card's activity line
 }
 
 /** file → { offset, info } — session files are append-only, so only new bytes are parsed */
@@ -114,6 +134,7 @@ function formatNotice(live = {}, infos = []) {
 module.exports = {
   claudeDir,
   encodeCwd,
+  findTranscript,
   readChunk,
   readSession,
   pickTitle,
