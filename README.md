@@ -42,7 +42,7 @@ The panel lives in the Secondary Side Bar (the right-hand one). **Cmd+Alt+C** (C
 Download the `.vsix` from the [latest release](https://github.com/bkaluza/vscode-claude-panel/releases/latest), then:
 
 ```bash
-code --install-extension claude-sessions-v0.10.0.vsix
+code --install-extension claude-sessions-v0.10.1.vsix
 ```
 
 or run **Extensions: Install from VSIX…** from the Command Palette. It isn't on the VS Code Marketplace or Open VSX yet.

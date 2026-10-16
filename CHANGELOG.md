@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.1
+
+- Resuming a session that's running elsewhere, or isn't in this workspace's transcripts, starts in that session's
+  own folder. Thanks to Klemen Kubelj.
+- Picking a colour in the panel also sets it in Claude Code (`/color`, sent when the session is idle, or on its
+  next resume from the panel; *none* sends `/color default`), and when Claude Code's own colour changes afterwards
+  the panel follows it. Panel colours picked before this are dropped where Claude Code has its own. Thanks to
+  Klemen Kubelj.
+
 ## 0.10.0
 
 - **Activity line**: a live session's card says what it's doing now: *Editing extension.js*, *Running npm test*,
