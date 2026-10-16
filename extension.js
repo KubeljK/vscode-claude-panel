@@ -554,7 +554,7 @@ async function resume(id, { skip, fork, preserveFocus } = {}) {
   const title = titleOf(id);
   const alias = prefs()[id]?.alias;
   const base = ['--resume', id, ...(fork ? ['--fork-session'] : []), ...(alias ? ['-n', alias] : [])];
-  const t = (!fork && idleTerminalNamed(title)) || createTerminal(fork ? `${title} (fork)` : title, colorOf(id), s.cwd);
+  const t = (!fork && idleTerminalNamed(title)) || createTerminal(fork ? `${title} (fork)` : title, colorOf(id), s.cwd || e?.cwd);
   t.sendText(launchArgs(base, skip));
   t.show(preserveFocus);
   pending.set(t, fork ? undefined : id);
