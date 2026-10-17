@@ -39,13 +39,15 @@ The panel lives in the Secondary Side Bar (the right-hand one). **Cmd+Alt+C** (C
 
 ## Install
 
-Download the `.vsix` from the [latest release](https://github.com/bkaluza/vscode-claude-panel/releases/latest), then:
+From the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=bkaluza.claude-session-panel):
+search for *Session Panel for Claude Code* in the Extensions view, or run
 
 ```bash
-code --install-extension claude-sessions-v0.10.1.vsix
+code --install-extension bkaluza.claude-session-panel
 ```
 
-or run **Extensions: Install from VSIX…** from the Command Palette. It isn't on the VS Code Marketplace or Open VSX yet.
+Each [release](https://github.com/bkaluza/vscode-claude-panel/releases/latest) also has the `.vsix`, for
+**Extensions: Install from VSIX…** (it isn't on Open VSX yet).
 
 ## Keys
 
@@ -127,7 +129,7 @@ Plain JavaScript, no build step, no runtime dependencies.
 
 ```bash
 npm test                          # unit tests (node:test, synthetic fixtures in test/fixtures)
-npx @vscode/vsce package          # build claude-sessions-<version>.vsix
+npx @vscode/vsce package          # build claude-session-panel-<version>.vsix
 npx @vscode/vsce ls               # what goes into it
 ```
 

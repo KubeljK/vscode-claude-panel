@@ -38,17 +38,17 @@ jobs:
         run: npm test
 
       - name: Package
-        run: npx --yes @vscode/vsce@4.0.0 package --out "claude-sessions-$GITHUB_REF_NAME.vsix"
+        run: npx --yes @vscode/vsce@4.0.0 package --out "claude-session-panel-$GITHUB_REF_NAME.vsix"
 
       - name: Publish to the VS Code Marketplace
         if: env.VSCE_PAT != ''
-        run: npx --yes @vscode/vsce@4.0.0 publish --packagePath "claude-sessions-$GITHUB_REF_NAME.vsix"
+        run: npx --yes @vscode/vsce@4.0.0 publish --packagePath "claude-session-panel-$GITHUB_REF_NAME.vsix"
 
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
-        run: npx --yes ovsx@1.2.0 publish "claude-sessions-$GITHUB_REF_NAME.vsix"
+        run: npx --yes ovsx@1.2.0 publish "claude-session-panel-$GITHUB_REF_NAME.vsix"
 
       - name: GitHub release
-        run: gh release create "$GITHUB_REF_NAME" "claude-sessions-$GITHUB_REF_NAME.vsix" --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" "claude-session-panel-$GITHUB_REF_NAME.vsix" --title "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

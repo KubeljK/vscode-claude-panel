@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.2
+
+- On the VS Code Marketplace, as `bkaluza.claude-session-panel` (`claude-sessions` was taken there). The extension
+  ID changes with it, so if you installed a `.vsix` before, uninstall the old *Session Panel for Claude Code*
+  (`bkaluza.claude-sessions`). Pins, names, colours and the saved order don't carry over; settings do.
+
 ## 0.10.1
 
 - Resuming a session that's running elsewhere, or isn't in this workspace's transcripts, starts in that session's

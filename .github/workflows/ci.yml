@@ -24,12 +24,12 @@ jobs:
         run: npm test
 
       - name: Package
-        run: npx --yes @vscode/vsce@4.0.0 package --out claude-sessions.vsix
+        run: npx --yes @vscode/vsce@4.0.0 package --out claude-session-panel.vsix
 
       - name: List packaged files
         run: npx --yes @vscode/vsce@4.0.0 ls
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: claude-sessions-vsix
-          path: claude-sessions.vsix
+          name: claude-session-panel-vsix
+          path: claude-session-panel.vsix

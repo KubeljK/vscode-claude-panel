@@ -1,8 +1,8 @@
 {
-  "name": "claude-sessions",
+  "name": "claude-session-panel",
   "displayName": "Session Panel for Claude Code",
   "description": "A panel for your Claude Code terminal sessions: see what's running, open several at once in named, coloured terminals, and reopen them after a restart.",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "publisher": "bkaluza",
   "author": {
     "name": "Bostjan Kaluza"
