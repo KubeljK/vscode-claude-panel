@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
 - *Running elsewhere* lists only sessions that are active there: working, waiting for you, running subagents, or
   idle for less than an hour. The Claude desktop app keeps a session running for as long as it's in its sidebar, so
