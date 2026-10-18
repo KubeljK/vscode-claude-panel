@@ -46,8 +46,9 @@ search for *Session Panel for Claude Code* in the Extensions view, or run
 code --install-extension bkaluza.claude-session-panel
 ```
 
+Cursor, Windsurf and VSCodium install it from [Open VSX](https://open-vsx.org/extension/bkaluza/claude-session-panel).
 Each [release](https://github.com/bkaluza/vscode-claude-panel/releases/latest) also has the `.vsix`, for
-**Extensions: Install from VSIX…** (it isn't on Open VSX yet).
+**Extensions: Install from VSIX…**.
 
 ## Keys
 
