@@ -13,6 +13,13 @@ terminals, and reopen them after a restart.
 - **Every session for this workspace**, grouped into *Open in this window*, *Running elsewhere*, *Pinned*, then
   *Today / Yesterday / This week / Older*. Each shows its name, colour, last prompt, folder and branch. Clicking one
   running elsewhere opens it read-only, so the other window's session is never resumed twice by accident.
+- **Running elsewhere** lists sessions running in another window, a terminal outside VS Code or the Claude desktop
+  app while they're working, waiting for you, or went idle in the last hour. Ones idle for longer (the desktop app
+  keeps every session in its sidebar running) move to the day groups, still marked as running elsewhere, and come
+  back when they get busy again. Those in the desktop app are tagged *Claude app*.
+- **Sessions started by another one** in the Claude desktop app (macOS) are listed under it, *› 3 sessions*, and
+  forks made in the app are marked *Fork*. This comes from the app's own records of which session started which,
+  so it only applies to sessions started from the desktop app.
 - **What it's doing now**: a live session's card has one line for its current step: *Editing extension.js*,
   *Running npm test*, *Searching for 'foo'*, *Running 2 agents*, *Thinking…*, or *Waiting: permission prompt*.
   Running subagents show theirs too.
@@ -75,6 +82,7 @@ keys off entirely, set `claudeSessions.sessionShortcuts` to `false`.
 | `claudeSessions.skipPermissions` | `false` | start sessions with `--dangerously-skip-permissions` (also the switch in the panel) |
 | `claudeSessions.includeSubfolders` | `true` | also list sessions started in subfolders of the workspace |
 | `claudeSessions.maxRecent` | `100` | how many past sessions to list |
+| `claudeSessions.elsewhereIdleHours` | `1` | a session running elsewhere idle this many hours moves from *Running elsewhere* to the day groups; `0` = never |
 | `claudeSessions.contextWindow` | `0` | context window for the usage bar; `0` = auto (1M, or 200K for Claude 3/4 models) |
 | `claudeSessions.command` | `claude` | the command that starts Claude Code |
 | `claudeSessions.extraArgs` | `[]` | extra arguments for every launch |
@@ -89,6 +97,8 @@ you set it):
 
 - `sessions/<pid>.json`: one per running Claude Code process, with its session id, name and busy/idle status. The
   extension matches those processes to this window's terminals.
+- On macOS, the Claude desktop app's `~/Library/Application Support/Claude/claude-code-sessions/`: which session
+  started or forked which, for nesting them.
 - `projects/<workspace path>*/<session id>.jsonl`: the transcripts, for past sessions, titles, last prompts,
   context usage, and subagents (`<session id>/subagents/`). Only newly appended lines are read.
 

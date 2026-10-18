@@ -7,6 +7,11 @@
   let drag; // { id, list } while a card is dragged; renders wait until it's dropped
   let renderLater = false;
   ui.agents ||= {}; // session id → true (subagents expanded) or 'all' (older ones too)
+  // session id → false / true (the sessions it started collapsed / expanded, as you left them), or 'all' (older ones
+  // too). Unset: expanded while one of them is recent, collapsed when they're all older.
+  ui.kids ||= {};
+  let kids = new Map(); // parent id → the sessions nested under it, from the last render
+  let byId = new Map();
 
   const COLOR_VARS = {
     red: '--vscode-terminal-ansiRed',
@@ -139,6 +144,16 @@
       case 'agents':
         if (ui.agents[id]) delete ui.agents[id];
         else ui.agents[id] = true;
+        save();
+        render();
+        break;
+      case 'kids':
+        ui.kids[id] = !kidsFold(byId.get(id)).open;
+        save();
+        render();
+        break;
+      case 'kidsAll':
+        ui.kids[id] = ui.kids[id] === 'all' ? true : 'all';
         save();
         render();
         break;
@@ -327,7 +342,7 @@
     }
     if (s.status === 'busy') return '<span class="pill busy"><span class="pulse"></span>Working</span>';
     if (s.status === 'starting') return '<span class="pill">Starting…</span>';
-    if (s.elsewhere) return '<span class="pill elsewhere" title="Running in another window or terminal">Elsewhere</span>';
+    if (s.elsewhere && !s.app) return '<span class="pill elsewhere" title="Running in another window or terminal">Elsewhere</span>';
     if (s.open) return `<span class="pill idle">${esc(s.status && s.status !== 'idle' ? s.status[0].toUpperCase() + s.status.slice(1) : 'Idle')}</span>`;
     return `<span class="when">${esc(ago(s.mtime))}</span>`;
   }
@@ -423,13 +438,78 @@
     return `<div class="activity${s.status === 'waiting' ? ' waiting' : ''}" title="${esc(s.activity)}">${esc(s.activity)}</div>`;
   }
 
+  // ---------------------------------------------------------------- sessions started by another one
+
+  // The disclosure line under a session that started others in the Claude desktop app: "› 3 sessions". Collapsed,
+  // it says which of them are working or need you.
+  function kidsToggle(s) {
+    const list = kids.get(s.id);
+    if (!list?.length) return '';
+    const open = kidsFold(s).open;
+    const all = Nesting.family(s.id, kids).slice(1).map((id) => byId.get(id));
+    const busy = all.filter((k) => k.status === 'busy').length;
+    const waiting = all.filter((k) => k.status === 'waiting').length;
+    const note = open ? '' : [busy ? `${busy} working` : '', waiting ? `${waiting} need${waiting > 1 ? '' : 's'} you` : ''].filter(Boolean);
+    return `
+          <button class="agents-toggle kids-toggle${open ? ' expanded' : ''}" data-act="kids" aria-expanded="${open}"
+                  title="${open ? 'Hide' : 'Show'} the sessions it started in the Claude app">
+            ${icon('chevron')}<span>${plural(all.length, 'session')}</span>${note.length ? `<span class="agents-run">· ${esc(note.join(' · '))}</span>` : ''}
+          </button>`;
+  }
+
+  // The sessions nested under a card, each a full card of its own: those active or recent (by the
+  // claudeSessions.elsewhereIdleHours cut-off, or with a recent one under them), the rest behind "Show N older", as
+  // for subagents.
+  // A parent's nested list as it's shown now: Nesting.fold, then whether you expanded or collapsed it yourself.
+  function kidsFold(s) {
+    const mode = ui.kids[s.id];
+    const f = Nesting.fold(kids.get(s.id) || [], (id) => Nesting.family(id, kids).some((x) => byId.get(x).recent), mode === 'all');
+    return { ...f, open: mode === undefined ? f.open : mode !== false };
+  }
+
+  function kidList(s) {
+    if (!kids.get(s.id)?.length) return '';
+    const { shown, older, open } = kidsFold(s);
+    if (!open) return '';
+    const all = ui.kids[s.id] === 'all';
+    const more = older
+      ? `<button class="link agents-more" data-act="kidsAll">${all ? 'Show recent only' : `Show ${older} older`}</button>`
+      : '';
+    return `
+      <div class="kids" data-id="${esc(s.id)}" role="group" aria-label="Sessions started by ${esc(s.title)}">
+        ${shown.map((id) => card(byId.get(id), false)).join('')}
+        ${more}
+      </div>`;
+  }
+
+  // A fork made in the Claude app, nested under the session it was forked from.
+  function forkTag(s) {
+    if (!s.fork || !kids.get(s.parent)?.includes(s.id)) return '';
+    const from = byId.get(s.parent)?.title;
+    return `<span class="pill elsewhere fork" title="${esc(`Forked from ${from || 'the session above'} in the Claude app`)}">Fork</span>`;
+  }
+
+  // Where a session running elsewhere runs, when we know: the Claude desktop app. In place of the Elsewhere pill, and
+  // next to Working / Needs you while it's busy.
+  function whereTag(s) {
+    return s.app === 'app' ? '<span class="pill elsewhere app" title="Running in the Claude desktop app">Claude app</span>' : '';
+  }
+
   // ⌘1…⌘9 jump to the first nine open sessions, in openOrder (unless claudeSessions.sessionShortcuts is off).
   function slotHint(s) {
     const i = s.open && state.shortcuts ? state.openOrder.indexOf(s.id) : -1;
     return i >= 0 && i < 9 ? `<kbd class="slot" title="Press ${esc(state.mod)}${i + 1} to switch here">${esc(state.mod)}${i + 1}</kbd>` : '';
   }
 
+  // Under a card, one tree of what it started: the sessions (nested cards) and then the subagents, each list right
+  // under its own toggle, both at the same indent.
+  function treeOf(s) {
+    const html = kidsToggle(s) + kidList(s) + agentsToggle(s) + agentList(s);
+    return html.trim() ? `<div class="tree" data-id="${esc(s.id)}">${html}</div>` : '';
+  }
+
   function card(s, movable) {
+    const tree = treeOf(s);
     const color = COLOR_VARS[s.color] ? s.color : 'none';
     const selected = ui.selected.includes(s.id);
     const meta = [
@@ -441,16 +521,18 @@
       ? `<span class="check live" title="Open in this window"><span class="live-dot"></span></span>`
       : `<label class="check" title="Select"><input type="checkbox" ${selected ? 'checked' : ''} aria-label="Select ${esc(s.title)}"></label>`;
     return `
-      <div class="card c-${color}${s.open ? ' open' : ''}${s.activity ? ' active' : ''}${selected ? ' selected' : ''}${s.unread ? ' unread' : ''}${s.current ? ` current ${s.current}` : ''}"
+      <div class="card c-${color}${s.open ? ' open' : ''}${s.activity ? ' active' : ''}${selected ? ' selected' : ''}${s.unread ? ' unread' : ''}${s.current ? ` current ${s.current}` : ''}${tree ? ' has-tree' : ''}"
            role="listitem" tabindex="0" data-id="${esc(s.id)}" data-act="open"
            ${movable ? 'draggable="true" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"' : ''}
-           title="${s.current ? 'Current terminal' : s.open ? 'Show terminal' : 'Resume in a new terminal'}"
+           title="${s.current ? 'Current terminal' : s.open ? 'Show terminal' : s.elsewhere ? 'Open read-only view' : 'Resume in a new terminal'}"
            ${s.current ? 'aria-current="true"' : ''}>
         ${check}
         <div class="body">
           <div class="row1">
             <span class="title">${esc(s.title)}</span>
             ${slotHint(s)}
+            ${forkTag(s)}
+            ${whereTag(s)}
             ${statusPill(s)}
           </div>
           ${s.lastPrompt ? `<div class="prompt">${esc(s.lastPrompt)}</div>` : ''}
@@ -459,14 +541,13 @@
           ${meta.length ? `<div class="meta">${meta.map(esc).join('<span class="sep">·</span>')}</div>` : ''}
           ${ctxRow(s)}
           </div>
-          ${agentsToggle(s)}
         </div>
         <div class="actions">
           ${s.hidden ? `<button class="icon-btn" data-act="unhide" title="Unhide">${icon('history')}</button>` : ''}
           <button class="icon-btn${s.pinned ? ' on' : ''}" data-act="pin" title="${s.pinned ? 'Unpin' : 'Pin'}">${icon('pin')}</button>
           <button class="icon-btn" data-act="more" title="More actions">${icon('more')}</button>
         </div>
-      </div>${agentList(s)}`;
+      </div>${tree}`;
   }
 
   function section(key, label, items, opts = {}) {
@@ -479,7 +560,7 @@
       <section class="section${opts.quiet ? ' quiet' : ''}">
         <div class="section-head">
           <button class="section-toggle${collapsed ? ' collapsed' : ''}" data-act="section" data-key="${key}" aria-expanded="${!collapsed}">
-            ${icon('chevron')}<span>${esc(label)}</span><span class="count">${items.length}</span>
+            ${icon('chevron')}<span>${esc(label)}</span><span class="count">${opts.count ?? items.length}</span>
           </button>
           ${
             selectable.length > 1 && !collapsed
@@ -493,7 +574,7 @@
 
   function matches(s, q) {
     if (!q) return true;
-    const hay = `${s.title} ${s.lastPrompt} ${s.folder} ${s.branch} ${s.color}`.toLowerCase();
+    const hay = `${s.title} ${s.lastPrompt} ${s.folder} ${s.branch} ${s.color}${s.app === 'app' ? ' claude app' : ''}`.toLowerCase();
     return q
       .toLowerCase()
       .split(/\s+/)
@@ -507,8 +588,8 @@
     document.body.classList.toggle('skipping', state.skipPermissions);
     $('clearFilter').hidden = !ui.filter;
 
+    byId = new Map(state.sessions.map((s) => [s.id, s]));
     if (loaded) {
-      const byId = new Map(state.sessions.map((s) => [s.id, s]));
       ui.selected = ui.selected.filter((id) => byId.has(id) && !byId.get(id).open);
     }
 
@@ -566,21 +647,35 @@
     const pinRank = rank(state.pinOrder);
     const byTime = (a, b) => b.mtime - a.mtime;
 
-    const open = list.filter((s) => s.open).sort((a, b) => openRank(a.id) - openRank(b.id) || byTime(a, b));
-    const elsewhere = list.filter((s) => s.elsewhere).sort(byTime);
-    const rest = list.filter((s) => !s.open && !s.elsewhere);
-    const pinned = rest.filter((s) => s.pinned && (!s.hidden || q)).sort((a, b) => pinRank(a.id) - pinRank(b.id) || byTime(a, b));
-    const recent = rest.filter((s) => !s.pinned && (!s.hidden || q)).sort(byTime);
-    const hidden = q ? [] : rest.filter((s) => s.hidden && !s.pinned).sort(byTime);
+    // The section each session belongs in on its own: 0 open in this window, 1 running elsewhere (and active; one
+    // idle there past the cut-off is listed by day like the rest), 2 pinned, 3 by day; hidden ones aren't ranked.
+    const rankOf = (s) =>
+      s.open ? 0 : s.elsewhere && !s.dormant ? 1 : s.hidden && !q ? undefined : s.pinned ? 2 : 3;
+    const ranked = list.map((s) => ({ id: s.id, parent: s.parent, rank: rankOf(s), s })).filter((x) => x.rank !== undefined);
+    const nested = Nesting.nest(ranked);
+    // Nested sessions in the order they were last active, the newest first.
+    kids = Nesting.children(nested, ranked.map((x) => x.s).sort(byTime));
+    const top = (rank) => ranked.filter((x) => x.rank === rank && !nested.has(x.id)).map((x) => x.s);
+    // A section counts its own sessions, nested ones included, but not those nested from other sections.
+    const count = (items, rank) =>
+      items.reduce((n, s) => n + Nesting.family(s.id, kids).filter((id) => rankOf(byId.get(id)) === rank).length, 0);
+    // A family in the day groups is as recent as its newest member.
+    const familyTime = (s) => Math.max(...Nesting.family(s.id, kids).map((id) => byId.get(id).mtime));
+
+    const open = top(0).sort((a, b) => openRank(a.id) - openRank(b.id) || byTime(a, b));
+    const elsewhere = top(1).sort(byTime);
+    const pinned = top(2).sort((a, b) => pinRank(a.id) - pinRank(b.id) || byTime(a, b));
+    const recent = top(3).sort((a, b) => familyTime(b) - familyTime(a));
+    const hidden = q ? [] : list.filter((s) => !s.open && !(s.elsewhere && !s.dormant) && s.hidden && !s.pinned).sort(byTime);
 
     const groups = {};
-    for (const s of recent) (groups[dayBucket(s.mtime)] ||= []).push(s);
+    for (const s of recent) (groups[dayBucket(familyTime(s))] ||= []).push(s);
 
     let html =
-      section('open', 'Open in this window', open, { sortable: true }) +
-      section('elsewhere', 'Running elsewhere', elsewhere) +
-      section('pinned', 'Pinned', pinned, { sortable: true }) +
-      ['Today', 'Yesterday', 'This week', 'Older'].map((g) => section(`g-${g}`, g, groups[g] || [])).join('') +
+      section('open', 'Open in this window', open, { sortable: true, count: count(open, 0) }) +
+      section('elsewhere', 'Running elsewhere', elsewhere, { count: count(elsewhere, 1) }) +
+      section('pinned', 'Pinned', pinned, { sortable: true, count: count(pinned, 2) }) +
+      ['Today', 'Yesterday', 'This week', 'Older'].map((g) => section(`g-${g}`, g, groups[g] || [], { count: count(groups[g] || [], 3) })).join('') +
       section('hidden', 'Hidden', hidden, { quiet: true });
 
     if (!html) {

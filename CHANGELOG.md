@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- *Running elsewhere* lists only sessions that are active there: working, waiting for you, running subagents, or
+  idle for less than an hour. The Claude desktop app keeps a session running for as long as it's in its sidebar, so
+  that section filled up with sessions idle for days. Those now go to *Today*, *This week* … by their last activity,
+  still marked as running elsewhere (clicking one opens it read-only, and resuming it still warns), and move back as
+  soon as they're busy again. Its count is what it shows. The hour is `claudeSessions.elsewhereIdleHours`; `0` keeps
+  them all in the section as before.
+- Sessions running in the Claude desktop app are tagged *Claude app*, in place of *Elsewhere*.
+- **Sessions started by another one** in the Claude desktop app are listed under it (*› 3 sessions*, collapsible),
+  each a full card of its own, a little quieter than the one above; forks made in the app say *Fork*. Those idle
+  or finished for longer than `claudeSessions.elsewhereIdleHours` are behind *Show N older*, as for subagents. Only
+  what the app records counts (macOS), so sessions started elsewhere aren't nested. A child stays in its own section when its parent's is further down: one
+  running elsewhere isn't moved under a finished parent in *Today*. A session running elsewhere that started one
+  active there stays in *Running elsewhere* with it. Section counts are the sessions that belong there, nested ones
+  included.
+- A card's nested sessions and subagents each open right under their own toggle, sessions first, at one indent.
+- Hovering a session running elsewhere says *Open read-only view*, which is what clicking it does.
+
 ## 0.10.2
 
 - On the VS Code Marketplace, as `bkaluza.claude-session-panel` (`claude-sessions` was taken there). The extension

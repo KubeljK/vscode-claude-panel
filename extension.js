@@ -11,6 +11,8 @@ const order = require('./order');
 const activity = require('./activity');
 const viewerPanel = require('./viewerPanel');
 const colors = require('./colors');
+const elsewhere = require('./elsewhere');
+const desktop = require('./desktop');
 
 const CLAUDE_DIR = transcripts.claudeDir(); // ~/.claude, or $CLAUDE_CONFIG_DIR
 const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
@@ -51,6 +53,10 @@ const pendingColor = new Map();
 const termSession = new Map();
 /** terminal → consecutive polls with no Claude running in it */
 const termMisses = new Map();
+/** child session id → { parentCliId, kind }, from the Claude desktop app's metadata; and parent → its children */
+let lineage = new Map();
+let childrenOf = new Map();
+const readDesktop = desktop.reader();
 /** ids that finished working while you weren't looking at them */
 const unread = new Set();
 let polling = false;
@@ -433,12 +439,14 @@ async function reorder(section, ids) {
   return (tabSync = tabSync.then(syncTabs, syncTabs));
 }
 
-// The panel section a session is in and its sessions in order, for Move up / down.
+// The panel section a session is in and its sessions in order, for Move up / down. One running elsewhere that has
+// been idle past the cut-off is listed with the others, so it can be in Pinned too.
 function sectionOf(id) {
   if (live.get(id)?.terminal) return ['open', sessionOrder()];
   const all = prefs();
-  if (!all[id]?.pinned || live.has(id)) return [];
-  return ['pinned', pinOrder().filter((x) => x === id || (sessions.has(x) && !live.has(x) && !all[x].hidden))];
+  const listed = (x) => !live.get(x)?.terminal && !activeElsewhere(x);
+  if (!all[id]?.pinned || !listed(id)) return [];
+  return ['pinned', pinOrder().filter((x) => x === id || (sessions.has(x) && listed(x) && !all[x].hidden))];
 }
 
 const ORDINALS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'];
@@ -839,6 +847,26 @@ async function pickView(id) {
 
 // ---------------------------------------------------------------- panel
 
+// Running elsewhere and not idle past claudeSessions.elsewhereIdleHours: shown in "Running elsewhere". The others
+// go to the day groups by their last activity, still marked as running elsewhere. A session that started one active
+// there (in the Claude desktop app) stays too, so its child can be shown under it.
+function activeElsewhere(id, seen = new Set()) {
+  const l = live.get(id);
+  if (!l || l.terminal || seen.has(id)) return false;
+  seen.add(id);
+  const agents = runningAgents(subagents.get(id));
+  if (elsewhere.active(l, { hours: cfg().get('elsewhereIdleHours'), mtime: sessions.get(id)?.mtime, agents })) return true;
+  return (childrenOf.get(id) || []).some((c) => activeElsewhere(c, seen));
+}
+
+async function readLineage() {
+  const next = await readDesktop();
+  if (next === lineage) return;
+  lineage = next;
+  childrenOf = new Map();
+  for (const [child, { parentCliId }] of lineage) (childrenOf.get(parentCliId) || childrenOf.set(parentCliId, []).get(parentCliId)).push(child);
+}
+
 // Terminals open in the panel by default. Once you have a session open there, the panel offers the split layout,
 // once: only while the setting is untouched, so anyone who has chosen a location never sees it.
 function showSplitTip(anyOpen) {
@@ -879,6 +907,7 @@ function payload() {
     const l = live.get(id);
     const title = titleOf(id);
     const agents = subagents.get(id);
+    const away = !!l && !l.terminal;
     return {
       id,
       title,
@@ -890,7 +919,10 @@ function payload() {
       pinned: !!p.pinned,
       hidden: !!p.hidden,
       open: !!l?.terminal,
-      elsewhere: !!l && !l.terminal,
+      elsewhere: away,
+      // running elsewhere but idle past the cut-off: listed by day, not under "Running elsewhere"
+      dormant: away && !activeElsewhere(id),
+      app: away ? elsewhere.where(l) : '', // 'app': the Claude desktop app
       status: l?.status || '',
       waitingFor: l?.status === 'waiting' ? l.waitingFor || '' : '',
       // "Editing extension.js", or "Waiting for 2 agents" once its turn is over, while live
@@ -899,6 +931,17 @@ function payload() {
       current: id === current.id ? (current.behind ? 'behind' : 'front') : '',
       ctx: usage.forPayload(s, cfg().get('contextWindow')), // [tokens in use, window size]
       agents,
+      // the session that started it, when the Claude desktop app says so: shown under it
+      parent: lineage.get(id)?.parentCliId || '',
+      fork: lineage.get(id)?.kind === 'fork',
+      // active or last active within the cut-off: shown in a parent's nested list without "Show N older"
+      recent: elsewhere.recent({
+        rec: away ? l : undefined,
+        open: !!l?.terminal,
+        hours: cfg().get('elsewhereIdleHours'),
+        mtime: s.mtime,
+        agents: runningAgents(agents),
+      }),
     };
   });
   return {
@@ -942,6 +985,7 @@ async function tick() {
     await dropSupersededColors();
     await pollLive();
     await subagents.update(sessions, live);
+    await readLineage();
     const n = transcripts.formatNotice(liveFormat, scanned);
     formatMisses = n ? formatMisses + 1 : 0;
     formatNotice = formatMisses >= 3 ? n : ''; // not for a record caught mid-write
@@ -969,6 +1013,7 @@ class PanelProvider {
 <link rel="stylesheet" href="${wv.asWebviewUri(vscode.Uri.joinPath(media, 'panel.css'))}">
 </head><body>
 <div id="app"></div>
+<script nonce="${nonce}" src="${wv.asWebviewUri(vscode.Uri.joinPath(media, 'nesting.js'))}"></script>
 <script nonce="${nonce}" src="${wv.asWebviewUri(vscode.Uri.joinPath(media, 'panel.js'))}"></script>
 </body></html>`;
     wv.onDidReceiveMessage((m) => handleMessage(m).catch((e) => vscode.window.showErrorMessage(String(e))));

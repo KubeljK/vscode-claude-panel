@@ -588,6 +588,16 @@ body.skipping .switch-label {
   font-weight: 500;
 }
 
+/* A fork made in the Claude app, nested under the session it came from. */
+.pill.fork {
+  font-style: italic;
+}
+
+/* Where a session running elsewhere runs (the Claude desktop app): a solid outline, as it's a place, not a state. */
+.pill.app {
+  border-style: solid;
+}
+
 .pulse {
   width: 6px;
   height: 6px;
@@ -803,12 +813,31 @@ body.skipping .switch-label {
   color: var(--fg);
 }
 
-/* The expanded list hangs under the session's text, with a guide line on its left. */
-.agents {
+/* What a session started hangs under its text: a toggle per kind (sessions, then subagents), each followed by its
+   list. Both lists share one indent and guide line, so they read as one tree. The card gives up its bottom padding
+   and the gap to it, so the toggles sit where they did inside the card. */
+.card.has-tree {
+  padding-bottom: 2px;
+}
+
+.tree {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: -2px 0 0 33px;
+  padding-bottom: 5px;
+}
+
+.tree > .agents-toggle {
+  margin-left: -2px;
+}
+
+.agents,
+.kids {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin: 0 0 6px 30px;
+  margin: 1px 0 4px -3px;
   padding-left: 4px;
   border-left: 1px solid var(--border);
 }
@@ -892,6 +921,25 @@ body.skipping .switch-label {
 
 .a-failed .agent-sub {
   color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* Sessions started by the one above (in the Claude desktop app) are full cards in the tree; see .tree. */
+.kids > .card {
+  padding-left: 8px;
+}
+
+/* A nested session reads as part of the one above: its title in normal weight, its text a little smaller. */
+.kids .title {
+  font-weight: normal;
+}
+
+.kids .prompt,
+.kids .activity {
+  font-size: 0.95em;
+}
+
+.kids .card:not(:hover):not(:focus-visible) .title {
+  color: color-mix(in srgb, var(--fg) 90%, transparent);
 }
 
 .agents-more {
