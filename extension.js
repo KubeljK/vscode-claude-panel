@@ -29,6 +29,7 @@ const PIN_ORDER_KEY = 'claudeSessions.pinOrder'; // globalState: pinned ids in t
 const SLOT_KEYS_DECLINED_KEY = 'claudeSessions.slotKeysDeclined'; // globalState: "Not now" to commandsToSkipShell
 const SPLIT_TIP_KEY = 'claudeSessions.splitTipShown'; // globalState: the split-layout tip was answered
 const SLOT_COMMANDS = Array.from({ length: 9 }, (_, i) => `claudeSessions.focus${i + 1}`);
+const PANEL_COMMANDS = ['claudeSessions.showPanel', 'claudeSessions.resume', 'claudeSessions.new'];
 const MOD_KEY = process.platform === 'darwin' ? 'Cmd' : 'Ctrl';
 
 // Claude Code's /color names → our theme colours (package.json "colors"), which default to Claude Code's own values.
@@ -557,25 +558,28 @@ const slotKeysOn = () => cfg().get('sessionShortcuts') !== false;
 
 // Keybindings for extension commands are sent to the shell while a terminal has focus, unless the
 // command is listed in terminal.integrated.commandsToSkipShell. That's the user's setting, so we ask first.
+const terminalCommands = (slotKeys = slotKeysOn()) => [...PANEL_COMMANDS, ...(slotKeys ? SLOT_COMMANDS : [])];
+
 function slotKeysMissing() {
   const list = vscode.workspace.getConfiguration('terminal.integrated').get('commandsToSkipShell') || [];
-  return SLOT_COMMANDS.filter((c) => !list.includes(c));
+  return terminalCommands().filter((c) => !list.includes(c));
 }
 
-function letSlotKeysThroughTerminal() {
+function letSlotKeysThroughTerminal(slotKeys) {
   const conf = vscode.workspace.getConfiguration('terminal.integrated');
   const list = conf.inspect('commandsToSkipShell')?.globalValue || [];
-  const missing = SLOT_COMMANDS.filter((c) => !list.includes(c));
+  const missing = terminalCommands(slotKeys).filter((c) => !list.includes(c));
   return missing.length && conf.update('commandsToSkipShell', [...list, ...missing], vscode.ConfigurationTarget.Global);
 }
 
 // Once per window, and never again after "Not now" (the command does it later).
 async function offerSlotKeysInTerminal() {
-  if (slotKeysAsked || !slotKeysOn() || context.globalState.get(SLOT_KEYS_DECLINED_KEY) || !slotKeysMissing().length) return;
+  if (slotKeysAsked || context.globalState.get(SLOT_KEYS_DECLINED_KEY) || !slotKeysMissing().length) return;
   slotKeysAsked = true;
+  const slots = slotKeysOn() ? `, ${MOD_KEY}+1–9` : '';
   const choice = await vscode.window.showInformationMessage(
-    `Session Panel: ${MOD_KEY}+1–9 switch between open sessions. To make them work while a terminal has focus too, ` +
-      'add the nine switch commands to your terminal.integrated.commandsToSkipShell setting?',
+    `Session Panel: ${MOD_KEY}+Alt+C, R, N${slots} don't work while a terminal has focus. To fix that, ` +
+      'add their commands to your terminal.integrated.commandsToSkipShell setting?',
     'Allow',
     'Not now'
   );
@@ -584,9 +588,9 @@ async function offerSlotKeysInTerminal() {
 }
 
 async function enableSlotKeysInTerminal() {
-  await letSlotKeysThroughTerminal();
+  await letSlotKeysThroughTerminal(true);
   if (!slotKeysOn()) await cfg().update('sessionShortcuts', true, vscode.ConfigurationTarget.Global);
-  vscode.window.showInformationMessage(`${MOD_KEY}+1–9 now switch Claude sessions from terminals too.`);
+  vscode.window.showInformationMessage(`The panel's keys, ${MOD_KEY}+1–9 included, now work from terminals too.`);
 }
 
 // Moves the Claude terminals of this window into the right-hand editor group.
