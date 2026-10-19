@@ -105,10 +105,15 @@ async function readSession(file, cache = fileCache) {
   return c.info;
 }
 
-/** What the panel calls a session: your alias, then Claude's names for it, then its last prompt, then its id. */
-function pickTitle(id, { alias, session: s = {}, live: l } = {}) {
+/** The session's name, when it has one: your alias, then Claude's names for it. Terminal tabs get this. */
+function pickName({ alias, session: s = {}, live: l } = {}) {
   const liveName = l?.nameSource === 'user' ? l.name : undefined;
-  return alias || s.name || liveName || s.customTitle || s.aiTitle || s.lastPrompt || id.slice(0, 8);
+  return alias || s.name || liveName || s.customTitle || s.aiTitle || undefined;
+}
+
+/** What the panel calls a session: its name, then its last prompt, then its id. */
+function pickTitle(id, opts = {}) {
+  return pickName(opts) || opts.session?.lastPrompt || id.slice(0, 8);
 }
 
 /** A live record (sessions/<pid>.json) with everything the panel reads from it. */
@@ -137,6 +142,7 @@ module.exports = {
   findTranscript,
   readChunk,
   readSession,
+  pickName,
   pickTitle,
   isLiveRecord,
   formatNotice,
