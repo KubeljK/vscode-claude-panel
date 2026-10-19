@@ -340,7 +340,7 @@ body.skipping .switch-label {
   margin-left: 2px;
 }
 
-.section.quiet .card {
+.section.quiet .cards > .card {
   opacity: 0.7;
 }
 
@@ -351,15 +351,21 @@ body.skipping .switch-label {
   padding: 2px 6px 0;
 }
 
+/* A card is the whole unit: its own row (.card-main), then what it started (.tree, with nested cards in it). The
+   frame, colour bar, tint and hover belong to the card; rules for what's inside go through > .card-main, so a card
+   nested in another's tree isn't styled by its parent's hover, focus or state. */
 .card {
   position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   padding: 7px 6px 7px 10px;
   border-radius: var(--radius);
   cursor: pointer;
   outline: none;
+}
+
+.card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 /* The session's colour, as a bar on the left edge. */
@@ -374,7 +380,8 @@ body.skipping .switch-label {
   background: var(--c);
 }
 
-.card:hover {
+/* Hovering a nested card highlights that one, not its parent as well. */
+.card:hover:not(:has(.tree .card:hover)) {
   background: var(--hover);
 }
 
@@ -391,7 +398,7 @@ body.skipping .switch-label {
   background: color-mix(in srgb, var(--c) 9%, transparent);
 }
 
-.card.open:hover {
+.card.open:hover:not(:has(.tree .card:hover)) {
   background: color-mix(in srgb, var(--c) 16%, transparent);
 }
 
@@ -402,7 +409,7 @@ body.skipping .switch-label {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent);
 }
 
-.card.current:hover {
+.card.current:hover:not(:has(.tree .card:hover)) {
   background: color-mix(in srgb, var(--c) 20%, var(--vscode-sideBar-background, transparent));
 }
 
@@ -414,11 +421,11 @@ body.skipping .switch-label {
   width: 4px;
 }
 
-.card.current .live-dot {
+.card.current > .card-main .live-dot {
   box-shadow: 0 0 0 2px var(--vscode-sideBar-background, transparent), 0 0 0 3.5px var(--fg);
 }
 
-.card.current.behind .live-dot {
+.card.current.behind > .card-main .live-dot {
   box-shadow: 0 0 0 2px var(--vscode-sideBar-background, transparent), 0 0 0 3.5px var(--muted);
 }
 
@@ -440,7 +447,7 @@ body.skipping .switch-label {
   opacity: 0.55;
 }
 
-.card:hover .check input,
+.card:hover > .card-main .check input,
 .check input:checked,
 .check input:focus-visible {
   opacity: 1;
@@ -515,7 +522,7 @@ body.skipping .switch-label {
   color: var(--warn);
 }
 
-.card.active .prompt {
+.card.active > .card-main .prompt {
   -webkit-line-clamp: 1;
 }
 
@@ -539,8 +546,9 @@ body.skipping .switch-label {
   color: var(--muted);
 }
 
-.card:hover .when,
-.card:focus-within .when {
+.card:hover:not(:has(.tree .card:hover)) > .card-main .when,
+.card:focus > .card-main .when,
+.card-main:focus-within .when {
   display: none;
 }
 
@@ -633,13 +641,15 @@ body.skipping .switch-label {
   gap: 1px;
 }
 
-.card:hover .actions,
-.card:focus-within .actions {
+.card:hover:not(:has(.tree .card:hover)) > .card-main .actions,
+.card:focus > .card-main .actions,
+.card-main:focus-within .actions {
   display: flex;
 }
 
-.card:hover .row1,
-.card:focus-within .row1 {
+.card:hover:not(:has(.tree .card:hover)) > .card-main .row1,
+.card:focus > .card-main .row1,
+.card-main:focus-within .row1 {
   padding-right: 48px;
 }
 
@@ -813,19 +823,17 @@ body.skipping .switch-label {
   color: var(--fg);
 }
 
-/* What a session started hangs under its text: a toggle per kind (sessions, then subagents), each followed by its
-   list. Both lists share one indent and guide line, so they read as one tree. The card gives up its bottom padding
-   and the gap to it, so the toggles sit where they did inside the card. */
+/* What a session started hangs under its text, inside its card: a toggle per kind (sessions, then subagents), each
+   followed by its list. Both lists share one indent and guide line, so they read as one tree. */
 .card.has-tree {
-  padding-bottom: 2px;
+  padding-bottom: 5px;
 }
 
 .tree {
-  position: relative;
   display: flex;
   flex-direction: column;
-  margin: -2px 0 0 33px;
-  padding-bottom: 5px;
+  margin-left: 23px; /* under the text: the card's padding, the check and the gap, less the toggle's own inset */
+  cursor: default;
 }
 
 .tree > .agents-toggle {
@@ -956,13 +964,10 @@ body.skipping .switch-label {
 /* ---------------------------------------------------------------- reordering */
 
 /* Open and pinned sessions are dragged within their section: the card fades and a line in the focus colour shows
-   where it will land, in the 2px gap between cards (or under the last card's subagent list). */
+   where it will land, in the 2px gap between cards. A card's subagents and nested sessions are inside it, so they
+   move with it. */
 .card.dragging {
   opacity: 0.4;
-}
-
-.agents {
-  position: relative;
 }
 
 .drop-before::after,

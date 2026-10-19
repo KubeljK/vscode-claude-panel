@@ -127,6 +127,7 @@
     switch (el.dataset.act) {
       case 'open':
         if (e.target.closest('label.check, .actions')) return;
+        if (e.target.closest('.tree')?.parentElement === el) return; // between its toggles and lists
         vscode.postMessage({ type: 'focus', id });
         break;
       case 'play':
@@ -223,7 +224,7 @@
     if (e.key === 'Enter') vscode.postMessage({ type: 'focus', id: card.dataset.id });
     else if (e.key === ' ') {
       e.preventDefault();
-      card.querySelector('.check input')?.click();
+      card.querySelector(':scope > .card-main .check input')?.click();
     } else if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
       e.preventDefault();
       const list = card.parentElement;
@@ -284,7 +285,7 @@
     const to = target ? cards.indexOf(target) : cards.length;
     if (to === from || to === from + 1) return;
     if (target) target.classList.add('drop-before');
-    else list.lastElementChild.classList.add('drop-after'); // the last card, or its subagent list
+    else list.lastElementChild.classList.add('drop-after'); // the last card
   }
 
   function endDrag() {
@@ -501,8 +502,8 @@
     return i >= 0 && i < 9 ? `<kbd class="slot" title="Press ${esc(state.mod)}${i + 1} to switch here">${esc(state.mod)}${i + 1}</kbd>` : '';
   }
 
-  // Under a card, one tree of what it started: the sessions (nested cards) and then the subagents, each list right
-  // under its own toggle, both at the same indent.
+  // Inside a card, under its text, one tree of what it started: the sessions (nested cards) and then the subagents,
+  // each list right under its own toggle, both at the same indent. The card's frame, colour bar and tint wrap it.
   function treeOf(s) {
     const html = kidsToggle(s) + kidList(s) + agentsToggle(s) + agentList(s);
     return html.trim() ? `<div class="tree" data-id="${esc(s.id)}">${html}</div>` : '';
@@ -526,6 +527,7 @@
            ${movable ? 'draggable="true" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"' : ''}
            title="${s.current ? 'Current terminal' : s.open ? 'Show terminal' : s.elsewhere ? 'Open read-only view' : 'Resume in a new terminal'}"
            ${s.current ? 'aria-current="true"' : ''}>
+        <div class="card-main">
         ${check}
         <div class="body">
           <div class="row1">
@@ -547,7 +549,8 @@
           <button class="icon-btn${s.pinned ? ' on' : ''}" data-act="pin" title="${s.pinned ? 'Unpin' : 'Pin'}">${icon('pin')}</button>
           <button class="icon-btn" data-act="more" title="More actions">${icon('more')}</button>
         </div>
-      </div>${tree}`;
+        </div>${tree}
+      </div>`;
   }
 
   function section(key, label, items, opts = {}) {

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A card's agents and sessions toggles and their lists are inside its frame again: its colour bar, tint, hover and
+  the current session's frame take them in, as in 0.10.
+
 ## 0.11.1
 
 - A session's terminal tab takes the session's name (Rename…, `/rename`, Claude Code's title) while it's the active
