@@ -11,6 +11,7 @@ const order = require('./order');
 const activity = require('./activity');
 const viewerPanel = require('./viewerPanel');
 const colors = require('./colors');
+const names = require('./names');
 const elsewhere = require('./elsewhere');
 const desktop = require('./desktop');
 
@@ -23,7 +24,7 @@ const POLL_MS = 2000;
 
 const REMEMBERED_KEY = 'claudeSessions.open'; // workspaceState: ordered ids open in this window
 const ORDER_KEY = 'claudeSessions.order'; // workspaceState: open sessions in the order you put them in
-const PREFS_KEY = 'claudeSessions.prefs'; // globalState: { [id]: { pinned, hidden, alias, color } }
+const PREFS_KEY = 'claudeSessions.prefs'; // globalState: { [id]: { pinned, hidden, alias, aliasWas, color, colorWas } }
 const PIN_ORDER_KEY = 'claudeSessions.pinOrder'; // globalState: pinned ids in the order you put them in
 const SLOT_KEYS_DECLINED_KEY = 'claudeSessions.slotKeysDeclined'; // globalState: "Not now" to commandsToSkipShell
 const SPLIT_TIP_KEY = 'claudeSessions.splitTipShown'; // globalState: the split-layout tip was answered
@@ -49,6 +50,8 @@ let live = new Map();
 const pending = new Map();
 /** terminal → colour chosen for a new session, applied once its id is known */
 const pendingColor = new Map();
+/** terminal → { id, name }: a /rename for the session in it, sent once it's idle (and only if it's still that one) */
+const pendingName = new Map();
 /** terminal → session id last seen running in it */
 const termSession = new Map();
 /** terminal → consecutive polls with no Claude running in it */
@@ -311,14 +314,26 @@ function trackRemembered() {
     termSession.set(e.terminal, id);
     termMisses.delete(e.terminal);
     if (!ids.includes(id)) add.push(id);
+    if (e.status !== 'idle') continue; // never into a turn in progress, or a prompt waiting for you
+    const commands = [];
     // There's no command-line option for the colour, so a new session gets /color once Claude is at its prompt.
     const color = pendingColor.get(e.terminal);
-    if (color && e.status === 'idle') {
+    if (color) {
       pendingColor.delete(e.terminal);
       if (!sessions.get(id)?.color) setPref(id, { color });
-      e.terminal.sendText(`/color ${color}`, false);
-      setTimeout(() => e.terminal.sendText('\r', false), 150);
+      commands.push(`/color ${color}`);
     }
+    // A name from Rename…, unless the session in the terminal is another one by now or already has that name.
+    const rename = pendingName.get(e.terminal);
+    if (rename) {
+      pendingName.delete(e.terminal);
+      const has = [names.fromClaude(sessions.get(id)), e.nameSource === 'user' ? names.clean(e.name) : ''];
+      if (rename.id === id && rename.name && !has.includes(rename.name)) commands.push(`/rename ${rename.name}`);
+    }
+    commands.forEach((c, i) => {
+      setTimeout(() => e.terminal.sendText(c, false), i * 500);
+      setTimeout(() => e.terminal.sendText('\r', false), i * 500 + 150);
+    });
   }
   const drop = [];
   for (const [t, id] of termSession) {
@@ -347,6 +362,25 @@ async function dropSupersededColors() {
   for (const [id, p] of Object.entries(prefs())) {
     const s = sessions.get(id);
     if (s && colors.superseded(p, s.color)) await setPref(id, { color: undefined, colorWas: undefined });
+  }
+}
+
+// The same for names: once Claude Code has a newer name (/rename typed in the terminal, or ours arrived), it's the
+// session's name and the panel's alias goes, along with any /rename still waiting to be sent for it. An alias from
+// before this has no aliasWas: it goes if Claude Code has the same name, else Claude Code's name now is noted, so
+// only a later change counts.
+async function dropSupersededNames() {
+  for (const [id, p] of Object.entries(prefs())) {
+    const s = sessions.get(id);
+    if (!s || !p.alias) continue;
+    const claude = names.fromClaude(s);
+    if (p.aliasWas === undefined && !names.superseded(p, claude)) {
+      await setPref(id, { aliasWas: claude ?? null });
+      continue;
+    }
+    if (!names.superseded(p, claude)) continue;
+    for (const [t, r] of pendingName) if (r.id === id) pendingName.delete(t);
+    await setPref(id, { alias: undefined, aliasWas: undefined });
   }
 }
 
@@ -607,12 +641,15 @@ async function resume(id, { skip, fork, preserveFocus } = {}) {
   }
   const s = sessions.get(id) || {};
   const title = titleOf(id);
-  const alias = prefs()[id]?.alias;
+  const alias = names.clean(prefs()[id]?.alias);
   const base = ['--resume', id, ...(fork ? ['--fork-session'] : []), ...(alias ? ['-n', alias] : [])];
   const t = (!fork && idleTerminalNamed(title)) || createTerminal(fork ? `${title} (fork)` : title, colorOf(id), s.cwd || e?.cwd);
   t.sendText(launchArgs(base, skip));
   const color = !fork && colors.toSend(prefs()[id], s.color);
   if (color) pendingColor.set(t, color);
+  // -n names it for this run; /rename, once it's at its prompt, makes that Claude Code's own name for the session.
+  const rename = !fork && names.toSend(prefs()[id], names.fromClaude(s));
+  if (rename) pendingName.set(t, { id, name: rename });
   t.show(preserveFocus);
   pending.set(t, fork ? undefined : id);
   if (!fork) {
@@ -715,14 +752,22 @@ function moveItems(id) {
   ];
 }
 
+// Claude Code gets the name as /rename: here once the session is idle, otherwise when it's next resumed from the
+// panel. An empty name only drops the panel's: Claude Code has no command to clear its own, so that one stays.
 async function renameSession(id) {
-  const name = await vscode.window.showInputBox({
+  const input = await vscode.window.showInputBox({
     title: 'Rename session',
     value: titleOf(id),
-    prompt: 'Shown in the panel and terminal tab, and passed to Claude as -n on the next resume.',
+    prompt: 'Shown in the panel and terminal tab, and given to Claude Code as /rename. Empty: back to Claude Code’s own name.',
   });
-  if (name === undefined) return;
-  return setPref(id, { alias: name.trim() || undefined });
+  if (input === undefined) return;
+  const name = names.clean(input);
+  const t = live.get(id)?.terminal;
+  for (const [x, r] of pendingName) if (r.id === id) pendingName.delete(x);
+  if (!name) return setPref(id, { alias: undefined, aliasWas: undefined });
+  const claude = names.fromClaude(sessions.get(id));
+  if (t && name !== claude) pendingName.set(t, { id, name });
+  return setPref(id, { alias: name, aliasWas: claude ?? null });
 }
 
 async function recolorSession(id) {
@@ -998,6 +1043,7 @@ async function tick() {
   try {
     await scan();
     await dropSupersededColors();
+    await dropSupersededNames();
     await pollLive();
     await subagents.update(sessions, live);
     await readLineage();
@@ -1125,6 +1171,7 @@ function activate(ctx) {
       termMisses.delete(t);
       pending.delete(t);
       pendingColor.delete(t);
+      pendingName.delete(t);
       if (id && t.exitStatus?.reason !== vscode.TerminalExitReason.Shutdown) {
         setRemembered(remembered().filter((x) => x !== id));
       }

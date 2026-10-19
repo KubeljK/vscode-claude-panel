@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- A session's terminal tab takes the session's name (Rename…, `/rename`, Claude Code's title) while it's the active
+  terminal; it kept the name it was opened with before. Thanks to Klemen Kubelj.
+- *Rename…* in the panel also renames the session in Claude Code (`/rename`, sent when the session is idle, or on
+  its next resume from the panel), and when Claude Code's own name changes afterwards (`/rename` in the terminal)
+  the panel follows it. Clearing the name in *Rename…* drops only the panel's: Claude Code has no command to clear
+  its own, so the session goes back to that. Names picked before this are kept until Claude Code's name changes.
+
 ## 0.11.0
 
 - *Running elsewhere* lists only sessions that are active there: working, waiting for you, running subagents, or
