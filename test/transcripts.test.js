@@ -85,6 +85,16 @@ test('pickTitle: alias > agent name > user-named live session > custom title > A
   assert.equal(transcripts.pickTitle(id), '7a1b2c3d');
 });
 
+test('pickName: the title when something named the session, not its last prompt or id', () => {
+  const s = { name: 'n', customTitle: 'c', aiTitle: 'a', lastPrompt: 'p' };
+  assert.equal(transcripts.pickName({ alias: 'mine', session: s }), 'mine');
+  assert.equal(transcripts.pickName({ session: { ...s, name: undefined }, live: { name: 'live', nameSource: 'user' } }), 'live');
+  assert.equal(transcripts.pickName({ session: { aiTitle: 'a', lastPrompt: 'p' } }), 'a');
+  assert.equal(transcripts.pickName({ session: { lastPrompt: 'p' }, live: { name: 'x', nameSource: 'auto' } }), undefined);
+  assert.equal(transcripts.pickName({}), undefined);
+  assert.equal(transcripts.pickName(), undefined);
+});
+
 test('readSession reads only appended bytes, and only whole lines', async () => {
   const dir = tmp();
   const file = path.join(dir, '7a1b2c3d-0000-4000-8000-000000000001.jsonl');

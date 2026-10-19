@@ -957,6 +957,20 @@ function payload() {
   };
 }
 
+// The API can't rename a terminal, but renameWithArg renames the active one: so a session's tab takes the session's
+// name (Rename…, /rename, Claude's title) while its terminal is active. Never a name another terminal has, since
+// tabs are matched to sessions by name.
+const tabNameAsked = new WeakMap(); // terminal → name last asked for, so a refused rename isn't retried every poll
+function nameActiveTerminal() {
+  const t = vscode.window.activeTerminal;
+  const id = t && !movingTabs && [...live].find(([, e]) => e.terminal === t)?.[0];
+  const name = id && transcripts.pickName({ alias: prefs()[id]?.alias, session: sessions.get(id), live: live.get(id) });
+  if (!name || t.name === name || tabNameAsked.get(t) === name) return;
+  if (vscode.window.terminals.some((o) => o !== t && o.name === name)) return;
+  tabNameAsked.set(t, name);
+  vscode.commands.executeCommand('workbench.action.terminal.renameWithArg', { name });
+}
+
 function refresh() {
   const p = payload();
   const json = JSON.stringify(p);
@@ -975,6 +989,7 @@ function refresh() {
   statusItem.tooltip = `Claude sessions in this window: ${open.length} open, ${busy} working, ${waiting} waiting for you, ${unread.size} done since you looked`;
   statusItem.show();
   if (view) view.badge = attention ? { value: attention, tooltip: `${waiting} need you, ${unread.size} finished` } : undefined;
+  nameActiveTerminal();
 }
 
 async function tick() {
