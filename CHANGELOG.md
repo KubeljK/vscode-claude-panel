@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.1
 
 - A session's terminal tab takes the session's name (Rename…, `/rename`, Claude Code's title) while it's the active
   terminal; it kept the name it was opened with before. Thanks to Klemen Kubelj.
