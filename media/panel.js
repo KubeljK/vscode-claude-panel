@@ -225,15 +225,6 @@
     else if (e.key === ' ') {
       e.preventDefault();
       card.querySelector(':scope > .card-main .check input')?.click();
-    } else if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-      e.preventDefault();
-      const list = card.parentElement;
-      const ids = idsIn(list);
-      const i = ids.indexOf(card.dataset.id);
-      const j = i + (e.key === 'ArrowDown' ? 1 : -1);
-      if (!list.dataset.sort || j < 0 || j >= ids.length) return;
-      [ids[i], ids[j]] = [ids[j], ids[i]];
-      reorder(list.dataset.sort, ids);
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const cards = [...document.querySelectorAll('.card')];
@@ -243,7 +234,7 @@
 
   // ---------------------------------------------------------------- reordering
 
-  // Open and pinned sessions can be dragged within their section, or moved with Alt+Up/Down. The browser fires no
+  // Open and pinned sessions can be dragged within their section. The browser fires no
   // click after a drag, so a drop never opens a session.
   const idsIn = (list) => [...list.querySelectorAll(':scope > .card')].map((c) => c.dataset.id);
 
@@ -524,7 +515,7 @@
     return `
       <div class="card c-${color}${s.open ? ' open' : ''}${s.activity ? ' active' : ''}${selected ? ' selected' : ''}${s.unread ? ' unread' : ''}${s.current ? ` current ${s.current}` : ''}${tree ? ' has-tree' : ''}"
            role="listitem" tabindex="0" data-id="${esc(s.id)}" data-act="open"
-           ${movable ? 'draggable="true" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"' : ''}
+           ${movable ? 'draggable="true"' : ''}
            title="${s.current ? 'Current terminal' : s.open ? 'Show terminal' : s.elsewhere ? 'Open read-only view' : 'Resume in a new terminal'}"
            ${s.current ? 'aria-current="true"' : ''}>
         <div class="card-main">

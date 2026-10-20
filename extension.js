@@ -450,7 +450,7 @@ function tabSessions() {
 }
 
 // The order of the open sessions in the panel and for ⌘1…⌘9: the order you put them in (dragged in the panel,
-// Alt+Up/Down, or by moving their terminal tabs), then any not in it yet: Claude terminal tabs left to right as they
+// Move up / down, or by moving their terminal tabs), then any not in it yet: Claude terminal tabs left to right as they
 // sit in the editor groups, then those in the terminal panel in the order they were opened.
 function sessionOrder() {
   const ids = [];
@@ -745,7 +745,7 @@ async function closeSession(id) {
   e.terminal.dispose();
 }
 
-// Move up / down within the session's section, where it has somewhere to go (Alt+Up/Down in the panel).
+// Move up / down within the session's section, where it has somewhere to go.
 function moveItems(id) {
   const [section, ids] = sectionOf(id);
   const i = ids ? ids.indexOf(id) : -1;

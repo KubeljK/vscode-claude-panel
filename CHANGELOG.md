@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.3
+
+- In the ⌘⌥R picker, Enter resumes the highlighted session when nothing is ticked (it did nothing before), and the
+  most recent one is highlighted when it opens. Thanks to Klemen Kubelj.
+- ⌘⌥C and ⌘⌥R now work while a session's terminal has focus too: the one-time prompt (and *Session Panel: Enable
+  Shortcuts in Terminals*, was *Enable Cmd+1–9 in Terminals*) adds them to `terminal.integrated.commandsToSkipShell`
+  along with ⌘1–9. New: ⌘⌥N (Ctrl+Alt+N) starts a new session, from a terminal or the panel. Thanks to Klemen
+  Kubelj.
+- Alt+Up / Alt+Down no longer move sessions in the panel: they only worked on a card focused with Tab, which a
+  click never leaves you on. Drag a session, or use *Move up* / *Move down* in its `⋯` menu.
+- The README lists the keys for macOS (⌘, ⌥) and Windows/Linux side by side, and explains moving sessions.
+
 ## 0.11.2
 
 - A card's agents and sessions toggles and their lists are inside its frame again: its colour bar, tint, hover and

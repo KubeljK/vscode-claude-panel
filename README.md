@@ -37,7 +37,7 @@ terminals, and reopen them after a restart.
   From the `⋯` menu or **Session Panel: Open Read-only View…**.
 - **Context usage**: a bar with tokens in use against the context window.
 - **Current session**: the one whose terminal is active is framed in its colour.
-- **Your order**: drag open and pinned sessions within their section, or Alt+Up / Alt+Down. Cmd+1–9 follow it.
+- **Your order**: drag open and pinned sessions within their section, or *Move up* / *Move down* in `⋯`. Cmd+1–9 follow it.
 - **Skip permissions** switch adds `--dangerously-skip-permissions` to every launch.
 - `⋯` menu: rename, colour, pin, hide, move up / down, fork, open the read-only view or the raw transcript, copy the
   id or the resume command.
@@ -59,18 +59,31 @@ Each [release](https://github.com/bkaluza/vscode-claude-panel/releases/latest) a
 
 ## Keys
 
-| Key (macOS / Windows, Linux) | |
-|---|---|
-| Cmd+1 … Cmd+9 / Ctrl+1 … Ctrl+9 | Switch to open session 1–9 (in the panel's order; shown as ⌘N there). Active while a terminal or the panel has focus, so in a file they still switch editor groups. |
-| Alt+Up / Alt+Down | On a session in the panel: move it up or down within *Open in this window* or *Pinned* |
-| Cmd+Alt+C / Ctrl+Alt+C | Show the panel |
-| Cmd+Alt+R / Ctrl+Alt+R | Quick multi-select picker, without the panel |
-| Cmd+Alt+N / Ctrl+Alt+N | New session. Active while a terminal or the panel has focus, so in a file the key stays free for other extensions. |
+| macOS | Windows, Linux | |
+|---|---|---|
+| ⌘1 … ⌘9 | Ctrl+1 … Ctrl+9 | Switch to open session 1–9 (in the panel's order; shown as ⌘N there). Active while a terminal or the panel has focus, so in a file they still switch editor groups. |
+| ⌘⌥C | Ctrl+Alt+C | Show the panel |
+| ⌘⌥R | Ctrl+Alt+R | Quick multi-select picker, without the panel. Enter with nothing ticked resumes the highlighted session. |
+| ⌘⌥N | Ctrl+Alt+N | New session. Active while a terminal or the panel has focus, so in a file the key stays free for other extensions. |
+
+On a Mac, ⌘ is Command and ⌥ is Option.
 
 VS Code sends keys to the shell while a terminal has focus unless the command is listed in
 `terminal.integrated.commandsToSkipShell`, and Claude Code takes them there. The first time, the extension asks
 before adding the commands of these keys there. If you said *Not now*, run **Session Panel: Enable Shortcuts in
 Terminals** later. To turn Cmd+1–9 off entirely, set `claudeSessions.sessionShortcuts` to `false`.
+
+### Moving sessions
+
+Sessions in *Open in this window* and *Pinned* stay in the order you put them in; the other sections are by
+time. To move one:
+
+- drag it up or down within its section;
+- or use *Move up* / *Move down* in its `⋯` menu.
+
+⌘1–9 follow the new order. Session terminals in editor tabs move to match, and dragging a terminal tab yourself
+reorders the panel; terminals in the terminal panel can't be moved by an extension, so for them only the panel
+changes.
 
 ## Settings
 
@@ -104,8 +117,7 @@ you set it):
   context usage, and subagents (`<session id>/subagents/`). Only newly appended lines are read.
 
 **Order.** *Open in this window* starts in terminal tab order: tabs left to right across the editor groups, then
-terminals in the terminal panel in the order they opened. Once you drag a session (or press Alt+Up/Down, or use
-*Move up / down*), that order is kept for this workspace, new sessions go to the end, and the session terminals'
+terminals in the terminal panel in the order they opened. Once you drag a session (or use *Move up / down*), that order is kept for this workspace, new sessions go to the end, and the session terminals'
 editor tabs are moved to match. Drag a terminal tab yourself and the panel follows. Terminals in the terminal
 panel can't be reordered by an extension, so only the panel's list changes for them. *Pinned* keeps the order you
 give it across workspaces; newly pinned sessions go to the end.
