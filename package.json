@@ -160,7 +160,7 @@
       },
       {
         "command": "claudeSessions.enableSlotKeysInTerminal",
-        "title": "Enable Cmd+1–9 in Terminals",
+        "title": "Enable Shortcuts in Terminals",
         "category": "Session Panel"
       },
       {
@@ -219,6 +219,12 @@
         "command": "claudeSessions.showPanel",
         "key": "ctrl+alt+c",
         "mac": "cmd+alt+c"
+      },
+      {
+        "command": "claudeSessions.new",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
+        "when": "terminalFocus || focusedView == 'claudeSessions.panel'"
       },
       {
         "command": "claudeSessions.focus1",

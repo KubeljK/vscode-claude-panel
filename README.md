@@ -65,11 +65,12 @@ Each [release](https://github.com/bkaluza/vscode-claude-panel/releases/latest) a
 | Alt+Up / Alt+Down | On a session in the panel: move it up or down within *Open in this window* or *Pinned* |
 | Cmd+Alt+C / Ctrl+Alt+C | Show the panel |
 | Cmd+Alt+R / Ctrl+Alt+R | Quick multi-select picker, without the panel |
+| Cmd+Alt+N / Ctrl+Alt+N | New session. Active while a terminal or the panel has focus, so in a file the key stays free for other extensions. |
 
 VS Code sends keys to the shell while a terminal has focus unless the command is listed in
-`terminal.integrated.commandsToSkipShell`. The first time, the extension asks before adding its nine switch
-commands there. If you said *Not now*, run **Session Panel: Enable Cmd+1–9 in Terminals** later. To turn the
-keys off entirely, set `claudeSessions.sessionShortcuts` to `false`.
+`terminal.integrated.commandsToSkipShell`, and Claude Code takes them there. The first time, the extension asks
+before adding the commands of these keys there. If you said *Not now*, run **Session Panel: Enable Shortcuts in
+Terminals** later. To turn Cmd+1–9 off entirely, set `claudeSessions.sessionShortcuts` to `false`.
 
 ## Settings
 
