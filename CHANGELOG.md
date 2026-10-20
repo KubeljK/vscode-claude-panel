@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.4
+
+- *Done* and *needs you* notifications, and the panel's unread mark, are no longer skipped for the session whose
+  terminal you were last in after you've moved to a file: VS Code keeps that terminal "active". A terminal in an
+  editor tab now counts as watched only while its tab is in front, and one in the terminal panel until you use an
+  editor. Thanks to the reader on X who spotted it in the code.
+
 ## 0.11.3
 
 - In the ⌘⌥R picker, Enter resumes the highlighted session when nothing is ticked (it did nothing before), and the

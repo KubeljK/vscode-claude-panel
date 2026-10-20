@@ -72,6 +72,7 @@ let liveFormat = {};
 let formatMisses = 0;
 let formatNotice = '';
 let slotKeysAsked = false;
+let usedEditor = false; // an editor was used since the active terminal last changed (see watching())
 /** while syncTabs moves terminal tabs, and the session tabs as last seen: so only your own tab drags count */
 let movingTabs = false;
 let lastTabs = [];
@@ -286,7 +287,7 @@ async function pollLive() {
   for (const [id, e] of next) {
     const before = live.get(id)?.status;
     if (!before || before === e.status || !e.terminal) continue;
-    if (vscode.window.state.focused && vscode.window.activeTerminal === e.terminal) continue;
+    if (watching(e.terminal)) continue;
     const show = (c) => c && e.terminal.show();
     if (e.status === 'waiting') {
       if (cfg().get('notifyWhenDone')) {
@@ -929,6 +930,15 @@ function showSplitTip(anyOpen) {
   return i.globalValue === undefined && i.workspaceValue === undefined && i.workspaceFolderValue === undefined;
 }
 
+// Whether you're looking at this terminal, so it needs no notification. activeTerminal stays set when you move to a
+// file: a terminal in an editor tab counts only while its tab is in front, and one in the terminal panel until an
+// editor is used. The API doesn't say when you click back into that terminal, so then it notifies anyway.
+function watching(t) {
+  if (!vscode.window.state.focused || vscode.window.activeTerminal !== t) return false;
+  const tab = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => isTerminalTab(x) && x.label === t.name);
+  return tab ? tab.isActive && tab.group.isActive : !usedEditor;
+}
+
 // The session whose terminal is VS Code's active one, and whether it's in front: activeTerminal stays set
 // when you move to a file, so a terminal tab that isn't the active tab of the active group is 'behind'.
 function currentSession() {
@@ -1187,7 +1197,15 @@ function activate(ctx) {
       tick();
     }),
     vscode.window.onDidOpenTerminal(() => setTimeout(tick, 1500)),
+    vscode.window.onDidChangeActiveTextEditor((ed) => {
+      if (ed) usedEditor = true;
+    }),
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      const { Mouse, Keyboard } = vscode.TextEditorSelectionChangeKind;
+      if (e.kind === Mouse || e.kind === Keyboard) usedEditor = true;
+    }),
     vscode.window.onDidChangeActiveTerminal((t) => {
+      usedEditor = false;
       if (!movingTabs) for (const [id, e] of live) if (e.terminal === t) unread.delete(id);
       refresh();
     }),
