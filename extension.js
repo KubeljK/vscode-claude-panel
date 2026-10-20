@@ -828,13 +828,18 @@ async function quickPickResume() {
       ),
       id: s.id,
     }));
-  const picked = await vscode.window.showQuickPick(items, {
-    canPickMany: true,
-    matchOnDescription: true,
-    matchOnDetail: true,
-    title: 'Resume Claude sessions',
+  const qp = vscode.window.createQuickPick();
+  Object.assign(qp, { items, canSelectMany: true, matchOnDescription: true, matchOnDetail: true });
+  qp.title = 'Resume Claude sessions';
+  qp.activeItems = items.slice(0, 1);
+  // Enter with nothing ticked resumes the highlighted session; a multi-select list would return nothing.
+  const picked = await new Promise((done) => {
+    qp.onDidAccept(() => done(qp.selectedItems.length ? qp.selectedItems : qp.activeItems));
+    qp.onDidHide(() => done([]));
+    qp.show();
   });
-  if (picked?.length) await resumeMany(picked.map((p) => p.id));
+  qp.dispose();
+  if (picked.length) await resumeMany(picked.map((p) => p.id));
 }
 
 // ---------------------------------------------------------------- read-only views
