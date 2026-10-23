@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 
 - **What's running everywhere**, at the top of the panel: *3 working · 1 needs you · 2 agents running*, counted
   across every live session: this window, other terminals and the Claude desktop app, hidden ones and those
