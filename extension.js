@@ -11,6 +11,7 @@ const order = require('./order');
 const activity = require('./activity');
 const viewerPanel = require('./viewerPanel');
 const colors = require('./colors');
+const tally = require('./media/tally');
 const names = require('./names');
 const elsewhere = require('./elsewhere');
 const desktop = require('./desktop');
@@ -1015,6 +1016,7 @@ function payload() {
     mod: process.platform === 'darwin' ? '⌘' : 'Ctrl+',
     shortcuts: slotKeysOn(), // ⌘N hints
     splitTip: showSplitTip(list.some((s) => s.open)),
+    totals: tally.tally(list), // across all live sessions, for the status bar
     notice: formatNotice, // Claude Code's files didn't look as expected
     reopen: notReopened().map((id) => ({ id, title: titleOf(id) })),
     skipPermissions: !!cfg().get('skipPermissions'),
@@ -1043,14 +1045,19 @@ function refresh() {
     view.webview.postMessage({ type: 'state', ...p });
   }
   const open = p.sessions.filter((s) => s.open);
-  const busy = open.filter((s) => s.status === 'busy').length;
   const waiting = open.filter((s) => s.status === 'waiting').length;
-  const attention = unread.size + waiting;
+  const attention = unread.size + waiting; // this window's, for the view badge
+  // The status bar counts what's running across all live sessions, like the panel's chips: this window, other
+  // terminals and the Claude desktop app.
+  const all = p.totals;
+  const kinds = tally.KINDS.filter((k) => all[k]);
   statusItem.text =
-    `$(${attention ? 'bell-dot' : 'sparkle'}) ${open.length}` +
-    (busy ? ` · ${busy} working` : '') +
-    (waiting ? ` · ${waiting} need${waiting > 1 ? '' : 's'} you` : '');
-  statusItem.tooltip = `Claude sessions in this window: ${open.length} open, ${busy} working, ${waiting} waiting for you, ${unread.size} done since you looked`;
+    `$(${attention || all.waiting ? 'bell-dot' : 'sparkle'}) ${open.length}` + kinds.map((k) => ` · ${tally.label(k, all[k])}`).join('');
+  const split = (k) => (all[k] ? ` (${all.here[k]} in this window, ${all.elsewhere[k]} elsewhere)` : '');
+  statusItem.tooltip =
+    `All Claude sessions: ${all.working} working${split('working')}, ${all.waiting} waiting for you${split('waiting')}, ` +
+    `${tally.label('agents', all.agents)}${split('agents')}.\n` +
+    `This window: ${open.length} open, ${unread.size} done since you looked.`;
   statusItem.show();
   if (view) view.badge = attention ? { value: attention, tooltip: `${waiting} need you, ${unread.size} finished` } : undefined;
   nameActiveTerminal();
@@ -1094,6 +1101,7 @@ class PanelProvider {
 </head><body>
 <div id="app"></div>
 <script nonce="${nonce}" src="${wv.asWebviewUri(vscode.Uri.joinPath(media, 'nesting.js'))}"></script>
+<script nonce="${nonce}" src="${wv.asWebviewUri(vscode.Uri.joinPath(media, 'tally.js'))}"></script>
 <script nonce="${nonce}" src="${wv.asWebviewUri(vscode.Uri.joinPath(media, 'panel.js'))}"></script>
 </body></html>`;
     wv.onDidReceiveMessage((m) => handleMessage(m).catch((e) => vscode.window.showErrorMessage(String(e))));

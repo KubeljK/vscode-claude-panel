@@ -94,6 +94,61 @@ button {
   gap: 6px;
 }
 
+/* Across all live sessions: "3 working · 1 needs you · 2 agents running". Each chip filters the list to those. */
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.chip:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.chip:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.chip-working {
+  background: color-mix(in srgb, var(--busy) 14%, transparent);
+}
+
+.chip-waiting {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* Pressed: the list shows only these. */
+.chip.on {
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+
+.chip-waiting.on {
+  background: var(--warn);
+  color: var(--vscode-editor-background);
+}
+
+.chip-working.on,
+.chip-agents.on {
+  background: color-mix(in srgb, var(--busy) 28%, transparent);
+}
+
 /* Skip-permissions switch */
 .switch {
   display: inline-flex;

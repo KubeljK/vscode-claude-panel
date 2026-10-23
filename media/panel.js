@@ -87,6 +87,7 @@
         <button id="refresh" class="icon-btn" title="Refresh">${icon('refresh')}</button>
         <button id="new" class="btn primary" title="Start a new Claude session">${icon('plus')}<span>New</span></button>
       </div>
+      <div id="summary" class="summary" role="toolbar" aria-label="Running across all sessions" hidden></div>
       <div id="selbar"></div>
     </header>
     <div id="banner"></div>
@@ -150,6 +151,11 @@
         break;
       case 'kids':
         ui.kids[id] = !kidsFold(byId.get(id)).open;
+        save();
+        render();
+        break;
+      case 'chip':
+        ui.chip = ui.chip === el.dataset.kind ? '' : el.dataset.kind;
         save();
         render();
         break;
@@ -374,7 +380,7 @@
   // The disclosure line under a session that has subagents: "› 37 agents · 1 running".
   function agentsToggle(s) {
     if (!s.agents?.length) return '';
-    const open = !!ui.agents[s.id];
+    const open = !!ui.agents[s.id] || (ui.chip === 'agents' && runningAgents(s) > 0);
     const run = runningAgents(s);
     return `
           <button class="agents-toggle${open ? ' expanded' : ''}" data-act="agents" aria-expanded="${open}"
@@ -401,7 +407,7 @@
 
   // Running agents plus those finished in the last few hours; the rest behind "Show N older".
   function agentList(s) {
-    const mode = ui.agents[s.id];
+    const mode = ui.agents[s.id] || (ui.chip === 'agents' && runningAgents(s) ? true : undefined);
     if (!mode || !s.agents?.length) return '';
     const cutoff = Date.now() - AGENT_RECENT_MS;
     let recent = s.agents.filter((a) => a.state === 'run' || a.end >= cutoff);
@@ -456,6 +462,7 @@
   function kidsFold(s) {
     const mode = ui.kids[s.id];
     const f = Nesting.fold(kids.get(s.id) || [], (id) => Nesting.family(id, kids).some((x) => byId.get(x).recent), mode === 'all');
+    if (ui.chip) return { shown: kids.get(s.id) || [], older: 0, open: true }; // filtered to what's running: all of them
     return { ...f, open: mode === undefined ? f.open : mode !== false };
   }
 
@@ -546,7 +553,7 @@
 
   function section(key, label, items, opts = {}) {
     if (!items.length) return '';
-    const collapsed = !!ui.collapsed[key];
+    const collapsed = !!ui.collapsed[key] && !ui.chip; // filtered to what's running: every section shows it
     const selectable = items.filter((s) => !s.open).map((s) => s.id);
     const allSel = selectable.length && selectable.every((id) => ui.selected.includes(id));
     const movable = opts.sortable && items.length > 1;
@@ -631,8 +638,25 @@
         </div>`
       : '';
 
+    // Across all live sessions: the chips at the top. One that's pressed filters the list (with the text filter, if
+    // any); it lets go once nothing it counts is left.
+    const totals = Tally.tally(state.sessions);
+    if (loaded && ui.chip && !totals[ui.chip]) ui.chip = '';
+    const chips = Tally.KINDS.filter((k) => totals[k]);
+    $('summary').hidden = !chips.length;
+    $('summary').innerHTML = chips
+      .map((k) => {
+        const on = ui.chip === k;
+        const where = `${totals.here[k]} in this window, ${totals.elsewhere[k]} elsewhere`;
+        return `<button class="chip chip-${k}${on ? ' on' : ''}" data-act="chip" data-kind="${k}" aria-pressed="${on}"
+                  title="${esc(`${on ? 'Show all sessions' : 'Show only these'} (${where})`)}">${k === 'working' || k === 'agents' ? '<span class="pulse"></span>' : ''}${esc(Tally.label(k, totals[k]))}</button>`;
+      })
+      .join('');
+
     const q = ui.filter.trim();
-    const list = state.sessions.filter((s) => matches(s, q));
+    const chip = ui.chip || '';
+    const reveal = !!(q || chip); // hidden sessions show up when you look for them
+    const list = state.sessions.filter((s) => matches(s, q) && (!chip || Tally.matches(chip, s)));
     const rank = (order) => (id) => {
       const i = (order || []).indexOf(id);
       return i < 0 ? 1e9 : i;
@@ -644,7 +668,7 @@
     // The section each session belongs in on its own: 0 open in this window, 1 running elsewhere (and active; one
     // idle there past the cut-off is listed by day like the rest), 2 pinned, 3 by day; hidden ones aren't ranked.
     const rankOf = (s) =>
-      s.open ? 0 : s.elsewhere && !s.dormant ? 1 : s.hidden && !q ? undefined : s.pinned ? 2 : 3;
+      s.open ? 0 : s.elsewhere && !s.dormant ? 1 : s.hidden && !reveal ? undefined : s.pinned ? 2 : 3;
     const ranked = list.map((s) => ({ id: s.id, parent: s.parent, rank: rankOf(s), s })).filter((x) => x.rank !== undefined);
     const nested = Nesting.nest(ranked);
     // Nested sessions in the order they were last active, the newest first.
@@ -660,7 +684,7 @@
     const elsewhere = top(1).sort(byTime);
     const pinned = top(2).sort((a, b) => pinRank(a.id) - pinRank(b.id) || byTime(a, b));
     const recent = top(3).sort((a, b) => familyTime(b) - familyTime(a));
-    const hidden = q ? [] : list.filter((s) => !s.open && !(s.elsewhere && !s.dormant) && s.hidden && !s.pinned).sort(byTime);
+    const hidden = reveal ? [] : list.filter((s) => !s.open && !(s.elsewhere && !s.dormant) && s.hidden && !s.pinned).sort(byTime);
 
     const groups = {};
     for (const s of recent) (groups[dayBucket(familyTime(s))] ||= []).push(s);
@@ -673,8 +697,8 @@
       section('hidden', 'Hidden', hidden, { quiet: true });
 
     if (!html) {
-      html = q
-        ? `<div class="empty"><p>No sessions match “${esc(q)}”.</p></div>`
+      html = q || chip
+        ? `<div class="empty"><p>No sessions match${q ? ` “${esc(q)}”` : ''}${chip ? ` (showing only: ${esc(Tally.label(chip, totals[chip]))})` : ''}.</p></div>`
         : `<div class="empty">
              <p><strong>No Claude sessions in this workspace yet.</strong></p>
              <p>Start one and it will show up here, along with any you run in a terminal yourself.</p>

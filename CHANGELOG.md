@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **What's running everywhere**, at the top of the panel: *3 working · 1 needs you · 2 agents running*, counted
+  across every live session: this window, other terminals and the Claude desktop app, hidden ones and those
+  nested or idle past the cut-off included. Click one to list only those sessions (hidden ones too, every section
+  and nested list open; the text filter still applies), click it again for all. It lets go once there's nothing
+  left to show.
+- The status bar counts the same: what's working, waiting for you and agents running across all sessions, with
+  the split between this window and elsewhere in its tooltip. The badge on the panel icon is still this window's.
+
 ## 0.11.4
 
 - *Done* and *needs you* notifications, and the panel's unread mark, are no longer skipped for the session whose

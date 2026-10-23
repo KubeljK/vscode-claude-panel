@@ -26,6 +26,9 @@ terminals, and reopen them after a restart.
 - **Live status**: *Working*, *Needs you* (a permission prompt, say), *Idle*, or *Done* when it finished while you
   were looking at something else. That also gives a notification, a badge on the panel icon and a bell in the
   status bar. Sessions you started by hand in a terminal are picked up too.
+- **What's running everywhere**: the top of the panel says *3 working · 1 needs you · 2 agents running* across
+  every live session (this window, other terminals, the Claude desktop app, hidden ones included), and so does the
+  status bar. Click one to list only those sessions; click it again for all.
 - **Open several at once**: tick them and press *Open N*. Each opens in its own terminal, named and coloured like
   the session. Clicking a session that's already open jumps to its terminal.
 - **Remembers what was open**: after a restart it offers to reopen them. A session is forgotten only when you close
