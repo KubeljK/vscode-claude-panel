@@ -369,7 +369,7 @@
         },
         "claudeSessions.showResults": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "List what each session handed you on its card: artifacts and docs it published, pull and merge requests it opened, files it sent you and plans you approved."
         },
         "claudeSessions.contextWindow": {
