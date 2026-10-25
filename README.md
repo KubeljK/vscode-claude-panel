@@ -103,14 +103,33 @@ changes.
 | `claudeSessions.contextWindow` | `0` | context window for the usage bar; `0` = auto (1M, or 200K for Claude 3/4 models) |
 | `claudeSessions.command` | `claude` | the command that starts Claude Code |
 | `claudeSessions.extraArgs` | `[]` | extra arguments for every launch |
+| `claudeSessions.accounts` | `[]` | several Claude accounts, one config directory each; see [Several accounts](#several-accounts) |
 
-In Restricted Mode (an untrusted workspace) `command`, `extraArgs` and `skipPermissions` are read from your user
-settings only, so a repository can't change what gets launched.
+In Restricted Mode (an untrusted workspace) `command`, `extraArgs`, `accounts` and `skipPermissions` are read from
+your user settings only, so a repository can't change what gets launched.
+
+### Several accounts
+
+Claude Code keeps one account per config directory: `~/.claude`, or the one `CLAUDE_CONFIG_DIR` names. To use, say,
+a work and a personal subscription side by side, give each its directory and list them:
+
+```json
+"claudeSessions.accounts": [
+  { "label": "Work", "configDir": "~/.claude", "color": "blue" },
+  { "label": "Personal", "configDir": "~/.claude-personal", "color": "green" }
+]
+```
+
+The panel then lists the sessions of both, each card with its account, and *New session* asks which account to
+use, the one you last picked in the workspace first. A session resumes on its own account. Its terminal gets the
+account's directory in `CLAUDE_CONFIG_DIR`, except `~/.claude`, which only works with the variable unset. An entry's
+`command` (default `claudeSessions.command`) can be an alias of your shell that sets the variable itself. Log in once
+per account, in a terminal with its `CLAUDE_CONFIG_DIR` set.
 
 ## How it works
 
 The extension reads the files Claude Code keeps in its config directory, `~/.claude` (or `$CLAUDE_CONFIG_DIR` if
-you set it):
+you set it, or each one in `claudeSessions.accounts`):
 
 - `sessions/<pid>.json`: one per running Claude Code process, with its session id, name and busy/idle status. The
   extension matches those processes to this window's terminals.

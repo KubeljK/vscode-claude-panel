@@ -15,11 +15,13 @@ const tally = require('./media/tally');
 const names = require('./names');
 const elsewhere = require('./elsewhere');
 const desktop = require('./desktop');
+const accountsOf = require('./accounts');
 
-const CLAUDE_DIR = transcripts.claudeDir(); // ~/.claude, or $CLAUDE_CONFIG_DIR
-const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
-// Claude Code writes <pid>.json here for every running session: { pid, sessionId, cwd, name, status, ... }
-const LIVE_DIR = path.join(CLAUDE_DIR, 'sessions');
+// Each account's config directory (~/.claude, or $CLAUDE_CONFIG_DIR, unless claudeSessions.accounts lists several)
+// has projects/ with the transcripts and sessions/, where Claude Code writes <pid>.json for every running session:
+// { pid, sessionId, cwd, name, status, ... }
+const projectsDir = (a) => path.join(a.dir, 'projects');
+const liveDir = (a) => path.join(a.dir, 'sessions');
 const SKIP_FLAG = '--dangerously-skip-permissions';
 const POLL_MS = 2000;
 
@@ -29,6 +31,7 @@ const PREFS_KEY = 'claudeSessions.prefs'; // globalState: { [id]: { pinned, hidd
 const PIN_ORDER_KEY = 'claudeSessions.pinOrder'; // globalState: pinned ids in the order you put them in
 const SLOT_KEYS_DECLINED_KEY = 'claudeSessions.slotKeysDeclined'; // globalState: "Not now" to commandsToSkipShell
 const SPLIT_TIP_KEY = 'claudeSessions.splitTipShown'; // globalState: the split-layout tip was answered
+const ACCOUNT_KEY = 'claudeSessions.account'; // workspaceState: config dir of the account last picked for a new session
 const SLOT_COMMANDS = Array.from({ length: 9 }, (_, i) => `claudeSessions.focus${i + 1}`);
 const PANEL_COMMANDS = ['claudeSessions.showPanel', 'claudeSessions.resume', 'claudeSessions.new'];
 const MOD_KEY = process.platform === 'darwin' ? 'Cmd' : 'Ctrl';
@@ -46,7 +49,9 @@ let statusItem;
 let sessions = new Map();
 /** id → transcript file of a live session that isn't in the workspace's project folders (started elsewhere) */
 const elsewhereFiles = new Map();
-/** id → live record (from LIVE_DIR) plus `terminal` when it runs in one of this window's terminals */
+/** { label, dir, command, color } per account, from claudeSessions.accounts; one unlabelled one when it's empty */
+let accounts = [];
+/** id → live record (from an account's sessions/) plus its `account` dir, and `terminal` when it runs in one of this window's terminals */
 let live = new Map();
 /** terminal → session id (or undefined for a new session), for terminals Claude hasn't registered yet */
 const pending = new Map();
@@ -93,6 +98,19 @@ function setPref(id, patch) {
   return context.globalState.update(PREFS_KEY, all).then(refresh);
 }
 
+function loadAccounts() {
+  accounts = accountsOf.resolve(cfg().get('accounts'), { command: cfg().get('command') });
+}
+
+// Badges and the account pick only once there is a choice.
+const severalAccounts = () => accounts.length > 1;
+
+// The account a session runs on: its live record says, else the folder its transcript is in.
+function accountOf(id) {
+  const dir = live.get(id)?.account;
+  return accounts.find((a) => a.dir === dir) || accountsOf.ofFile(accounts, sessions.get(id)?.file) || accounts[0];
+}
+
 function setRemembered(ids) {
   return context.workspaceState.update(REMEMBERED_KEY, [...new Set(ids)]);
 }
@@ -122,23 +140,20 @@ function setOpenOrder(ids) {
 // ---------------------------------------------------------------- session files
 
 async function projectDirs() {
-  let entries;
-  try {
-    entries = await fs.promises.readdir(PROJECTS_DIR, { withFileTypes: true });
-  } catch {
-    return [];
-  }
   const sub = cfg().get('includeSubfolders');
   // Windows paths ignore case: fsPath lowercases the drive letter, while Claude Code keeps the cwd's casing, and
   // the folder keeps whichever casing created it first.
   const fold = process.platform === 'win32' ? (s) => s.toLowerCase() : (s) => s;
   const dirs = new Set();
-  for (const f of vscode.workspace.workspaceFolders || []) {
-    const enc = fold(transcripts.encodeCwd(f.uri.fsPath));
-    for (const e of entries) {
-      const name = fold(e.name);
-      if (e.isDirectory() && (name === enc || (sub && name.startsWith(enc + '-')))) {
-        dirs.add(path.join(PROJECTS_DIR, e.name));
+  for (const a of accounts) {
+    const entries = await fs.promises.readdir(projectsDir(a), { withFileTypes: true }).catch(() => []);
+    for (const f of vscode.workspace.workspaceFolders || []) {
+      const enc = fold(transcripts.encodeCwd(f.uri.fsPath));
+      for (const e of entries) {
+        const name = fold(e.name);
+        if (e.isDirectory() && (name === enc || (sub && name.startsWith(enc + '-')))) {
+          dirs.add(path.join(projectsDir(a), e.name));
+        }
       }
     }
   }
@@ -170,11 +185,15 @@ async function scanElsewhere() {
   }
 }
 
-// Cached once found: a transcript stays where it was first written.
+// Cached once found: a transcript stays where it was first written. The session's own account is searched first.
 async function transcriptOf(id, cwd) {
   const known = elsewhereFiles.get(id);
   if (known && fs.existsSync(known)) return known;
-  const file = await transcripts.findTranscript(PROJECTS_DIR, id, cwd);
+  const own = live.get(id)?.account;
+  let file;
+  for (const a of [...accounts].sort((x, y) => (y.dir === own) - (x.dir === own))) {
+    if ((file = await transcripts.findTranscript(projectsDir(a), id, cwd))) break;
+  }
   if (file) elsewhereFiles.set(id, file);
   else elsewhereFiles.delete(id);
   return file;
@@ -192,18 +211,19 @@ function alive(pid) {
 }
 
 async function readLive() {
-  const files = await fs.promises.readdir(LIVE_DIR).catch(() => []);
   const out = [];
   const format = { parsed: 0, ok: 0, version: '' };
-  for (const f of files) {
-    if (!f.endsWith('.json')) continue;
-    try {
-      const d = JSON.parse(await fs.promises.readFile(path.join(LIVE_DIR, f), 'utf8'));
-      format.parsed++;
-      if (transcripts.isLiveRecord(d)) format.ok++;
-      if (typeof d.version === 'string') format.version ||= d.version;
-      if (d.sessionId && d.pid && alive(d.pid)) out.push(d);
-    } catch {}
+  for (const a of accounts) {
+    for (const f of await fs.promises.readdir(liveDir(a)).catch(() => [])) {
+      if (!f.endsWith('.json')) continue;
+      try {
+        const d = JSON.parse(await fs.promises.readFile(path.join(liveDir(a), f), 'utf8'));
+        format.parsed++;
+        if (transcripts.isLiveRecord(d)) format.ok++;
+        if (typeof d.version === 'string') format.version ||= d.version;
+        if (d.sessionId && d.pid && alive(d.pid)) out.push({ ...d, account: a.dir });
+      } catch {}
+    }
   }
   liveFormat = format;
   return out;
@@ -391,18 +411,20 @@ function quote(a) {
   return /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`;
 }
 
-function launchArgs(base, skip = cfg().get('skipPermissions')) {
+function launchArgs(base, skip = cfg().get('skipPermissions'), account = accounts[0]) {
   const extra = cfg().get('extraArgs').filter((a) => a !== SKIP_FLAG);
-  return [cfg().get('command'), ...base, ...(skip ? [SKIP_FLAG] : []), ...extra].map(quote).join(' ');
+  return [account.command, ...base, ...(skip ? [SKIP_FLAG] : []), ...extra].map(quote).join(' ');
 }
 
-function createTerminal(name, color, cwd) {
+function createTerminal(name, color, cwd, account = accounts[0]) {
+  const env = accountsOf.terminalEnv(account);
   return vscode.window.createTerminal({
     name,
     cwd: cwd && fs.existsSync(cwd) ? cwd : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     color: new vscode.ThemeColor(COLORS[color] || 'terminal.ansiWhite'),
     iconPath: new vscode.ThemeIcon('sparkle'),
     location: terminalLocation(),
+    ...(env ? { env } : {}), // the account's config dir, for the command and everything Claude Code runs
     // Not transient: VS Code keeps these running across window reloads. After a full restart it revives
     // them as empty shells, which resume() reuses by name.
   });
@@ -609,11 +631,18 @@ async function moveSessionsToSplit() {
   }
 }
 
-// A terminal VS Code revived after a restart, with this session's name and nothing running in it.
-function idleTerminalNamed(name) {
+// A terminal VS Code revived after a restart, with this session's name and nothing running in it, set up for the
+// same account.
+function idleTerminalNamed(name, account = accounts[0]) {
   const busy = new Set([...live.values()].map((e) => e.terminal).filter(Boolean));
+  const env = accountsOf.terminalEnv(account);
   return vscode.window.terminals.find(
-    (t) => t.name.toLowerCase() === name.toLowerCase() && !busy.has(t) && !pending.has(t) && !t.exitStatus
+    (t) =>
+      t.name.toLowerCase() === name.toLowerCase() &&
+      !busy.has(t) &&
+      !pending.has(t) &&
+      !t.exitStatus &&
+      accountsOf.sameEnv(t.creationOptions?.env, env)
   );
 }
 
@@ -648,9 +677,12 @@ async function resume(id, { skip, fork, preserveFocus } = {}) {
   const s = sessions.get(id) || {};
   const title = titleOf(id);
   const alias = names.clean(prefs()[id]?.alias);
+  const account = accountOf(id); // a fork stays on its session's account too
   const base = ['--resume', id, ...(fork ? ['--fork-session'] : []), ...(alias ? ['-n', alias] : [])];
-  const t = (!fork && idleTerminalNamed(title)) || createTerminal(fork ? `${title} (fork)` : title, colorOf(id), s.cwd || e?.cwd);
-  t.sendText(launchArgs(base, skip));
+  const t =
+    (!fork && idleTerminalNamed(title, account)) ||
+    createTerminal(fork ? `${title} (fork)` : title, colorOf(id), s.cwd || e?.cwd, account);
+  t.sendText(launchArgs(base, skip, account));
   const color = !fork && colors.toSend(prefs()[id], s.color);
   if (color) pendingColor.set(t, color);
   // -n names it for this run; /rename, once it's at its prompt, makes that Claude Code's own name for the session.
@@ -670,16 +702,42 @@ async function resumeMany(ids, opts) {
 }
 
 async function newSession() {
+  const account = await pickAccount();
+  if (!account) return;
   const name = await vscode.window.showInputBox({ title: 'New Claude session', prompt: 'Session name (optional)' });
   if (name === undefined) return;
   const color = await pickColor('Terminal colour');
   if (color === undefined) return;
-  const t = createTerminal(name || 'claude', color, undefined);
-  t.sendText(launchArgs(name ? ['-n', name] : []));
+  const t = createTerminal(name || 'claude', color, undefined, account);
+  t.sendText(launchArgs(name ? ['-n', name] : [], undefined, account));
   t.show();
   pending.set(t, undefined);
   if (color) pendingColor.set(t, color);
   refresh();
+}
+
+// With several accounts, which one the new session runs on: the one last picked in this workspace comes first.
+async function pickAccount() {
+  if (!severalAccounts()) return accounts[0];
+  const last = context.workspaceState.get(ACCOUNT_KEY);
+  const items = accounts.map((a) => ({
+    label: a.label,
+    description: accountsOf.display(a.dir),
+    detail: a.command,
+    iconPath: new vscode.ThemeIcon('account', a.color ? new vscode.ThemeColor(COLORS[a.color]) : undefined),
+    account: a,
+  }));
+  const qp = vscode.window.createQuickPick();
+  Object.assign(qp, { items, title: 'New Claude session: account', matchOnDescription: true });
+  qp.activeItems = [items.find((i) => i.account.dir === last) || items[0]];
+  const pick = await new Promise((done) => {
+    qp.onDidAccept(() => done(qp.activeItems[0]));
+    qp.onDidHide(() => done(undefined));
+    qp.show();
+  });
+  qp.dispose();
+  if (pick) await context.workspaceState.update(ACCOUNT_KEY, pick.account.dir);
+  return pick?.account;
 }
 
 async function pickColor(title) {
@@ -724,8 +782,14 @@ async function moreActions(id) {
     { label: '$(copy) Copy session id', run: () => vscode.env.clipboard.writeText(id) },
     {
       label: '$(copy) Copy resume command',
-      // claude --resume only finds a session from the folder it was started in.
-      run: () => vscode.env.clipboard.writeText((s.cwd ? `cd ${quote(s.cwd)} && ` : '') + launchArgs(['--resume', id])),
+      // claude --resume only finds a session from the folder it was started in, and with its account's config dir.
+      run: () => {
+        const account = accountOf(id);
+        const dir = accountsOf.terminalEnv(account)?.CLAUDE_CONFIG_DIR;
+        const env = dir ? `CLAUDE_CONFIG_DIR=${quote(dir)} ` : '';
+        const cd = s.cwd ? `cd ${quote(s.cwd)} && ` : '';
+        return vscode.env.clipboard.writeText(cd + env + launchArgs(['--resume', id], undefined, account));
+      },
     },
   ];
   const pick = await vscode.window.showQuickPick(items, { title: titleOf(id) });
@@ -826,7 +890,7 @@ async function quickPickResume() {
     .sort((a, b) => b.mtime - a.mtime)
     .map((s) => ({
       label: `${live.get(s.id)?.terminal ? '$(terminal) ' : ''}${titleOf(s.id)}`,
-      description: [colorOf(s.id), ago(s.mtime), s.cwd && path.basename(s.cwd)].filter(Boolean).join(' · '),
+      description: [accountLabel(s.id), colorOf(s.id), ago(s.mtime), s.cwd && path.basename(s.cwd)].filter(Boolean).join(' · '),
       detail: s.lastPrompt && s.lastPrompt !== titleOf(s.id) ? s.lastPrompt : undefined,
       iconPath: new vscode.ThemeIcon(
         'circle-filled',
@@ -894,7 +958,7 @@ async function pickView(id) {
     .sort((a, b) => !!live.has(b.id) - !!live.has(a.id) || b.mtime - a.mtime)
     .map((s) => ({
       label: `${live.has(s.id) ? '$(pulse) ' : ''}${titleOf(s.id)}`,
-      description: [ago(s.mtime), s.cwd && path.basename(s.cwd)].filter(Boolean).join(' · '),
+      description: [accountLabel(s.id), ago(s.mtime), s.cwd && path.basename(s.cwd)].filter(Boolean).join(' · '),
       id: s.id,
     }));
   const pick = await vscode.window.showQuickPick(items, { title: 'Open a read-only view of a session', matchOnDescription: true });
@@ -902,6 +966,9 @@ async function pickView(id) {
 }
 
 // ---------------------------------------------------------------- panel
+
+// The account's name for a session's card and pickers, once there is more than one account.
+const accountLabel = (id) => (severalAccounts() ? accountOf(id).label : '');
 
 // Running elsewhere and not idle past claudeSessions.elsewhereIdleHours: shown in "Running elsewhere". The others
 // go to the day groups by their last activity, still marked as running elsewhere. A session that started one active
@@ -973,10 +1040,13 @@ function payload() {
     const title = titleOf(id);
     const agents = subagents.get(id);
     const away = !!l && !l.terminal;
+    const account = severalAccounts() ? accountOf(id) : undefined;
     return {
       id,
       title,
       color: colorOf(id) || '',
+      // the Claude account it runs on, when claudeSessions.accounts lists several: a badge on its card
+      account: account ? { label: account.label, color: account.color, dir: accountsOf.display(account.dir) } : null,
       lastPrompt: s.lastPrompt && s.lastPrompt !== title ? s.lastPrompt : '',
       mtime: s.mtime || l?.updatedAt || Date.now(),
       folder: folderOf(s.cwd, root),
@@ -1157,6 +1227,7 @@ async function handleMessage(m) {
 
 function activate(ctx) {
   context = ctx;
+  loadAccounts();
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusItem.command = 'claudeSessions.showPanel';
   viewerPanel.init({
@@ -1221,6 +1292,10 @@ function activate(ctx) {
       if (!e.affectsConfiguration('claudeSessions')) return;
       if (e.affectsConfiguration('claudeSessions.terminalLocation') && splitMode()) moveSessionsToSplit();
       if (e.affectsConfiguration('claudeSessions.sessionShortcuts')) offerSlotKeysInTerminal();
+      if (e.affectsConfiguration('claudeSessions.accounts') || e.affectsConfiguration('claudeSessions.command')) {
+        loadAccounts();
+        return tick(); // other folders to read
+      }
       refresh();
     })
   );

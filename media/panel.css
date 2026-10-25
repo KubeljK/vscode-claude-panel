@@ -661,6 +661,15 @@ body.skipping .switch-label {
   border-style: solid;
 }
 
+/* The Claude account a session runs on (claudeSessions.accounts): outlined in the account's colour, which its own
+   c-* class sets, not the card's. */
+.pill.account {
+  background: transparent;
+  border: 1px solid var(--c);
+  color: var(--fg);
+  font-weight: 500;
+}
+
 .pulse {
   width: 6px;
   height: 6px;

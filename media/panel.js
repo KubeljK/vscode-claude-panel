@@ -494,6 +494,14 @@
     return s.app === 'app' ? '<span class="pill elsewhere app" title="Running in the Claude desktop app">Claude app</span>' : '';
   }
 
+  // The Claude account a session runs on, when claudeSessions.accounts lists several: outlined in its colour.
+  function accountTag(s) {
+    if (!s.account) return '';
+    const color = COLOR_VARS[s.account.color] ? s.account.color : 'none';
+    const title = `Claude account: ${s.account.label} (${s.account.dir})`;
+    return `<span class="pill account c-${color}" title="${esc(title)}">${esc(s.account.label)}</span>`;
+  }
+
   // ⌘1…⌘9 jump to the first nine open sessions, in openOrder (unless claudeSessions.sessionShortcuts is off).
   function slotHint(s) {
     const i = s.open && state.shortcuts ? state.openOrder.indexOf(s.id) : -1;
@@ -532,6 +540,7 @@
             <span class="title">${esc(s.title)}</span>
             ${slotHint(s)}
             ${forkTag(s)}
+            ${accountTag(s)}
             ${whereTag(s)}
             ${statusPill(s)}
           </div>
@@ -575,7 +584,7 @@
 
   function matches(s, q) {
     if (!q) return true;
-    const hay = `${s.title} ${s.lastPrompt} ${s.folder} ${s.branch} ${s.color}${s.app === 'app' ? ' claude app' : ''}`.toLowerCase();
+    const hay = `${s.title} ${s.lastPrompt} ${s.folder} ${s.branch} ${s.color}${s.app === 'app' ? ' claude app' : ''}${s.account ? ` ${s.account.label}` : ''}`.toLowerCase();
     return q
       .toLowerCase()
       .split(/\s+/)
