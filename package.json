@@ -42,10 +42,11 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "In Restricted Mode the panel works, but the workspace can't change the command that starts Claude Code, its extra arguments, or switch on --dangerously-skip-permissions: those settings are only read from your user settings.",
+      "description": "In Restricted Mode the panel works, but the workspace can't change the command that starts Claude Code, its extra arguments, its accounts, or switch on --dangerously-skip-permissions: those settings are only read from your user settings.",
       "restrictedConfigurations": [
         "claudeSessions.command",
         "claudeSessions.extraArgs",
+        "claudeSessions.accounts",
         "claudeSessions.skipPermissions"
       ]
     },
@@ -315,6 +316,46 @@
           },
           "default": [],
           "description": "Extra arguments added to every launch."
+        },
+        "claudeSessions.accounts": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "configDir"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "Name shown on the session's card, e.g. Work."
+              },
+              "configDir": {
+                "type": "string",
+                "description": "The account's Claude Code config directory, what CLAUDE_CONFIG_DIR selects: an absolute path or one starting with ~/, e.g. ~/.claude-personal. ~/.claude is Claude Code's default."
+              },
+              "command": {
+                "type": "string",
+                "description": "Command that starts Claude Code for this account. Default: claudeSessions.command."
+              },
+              "color": {
+                "type": "string",
+                "enum": [
+                  "red",
+                  "orange",
+                  "yellow",
+                  "green",
+                  "cyan",
+                  "blue",
+                  "purple",
+                  "pink"
+                ],
+                "description": "Colour of the account's badge."
+              }
+            }
+          },
+          "markdownDescription": "Several Claude accounts, one config directory each (`CLAUDE_CONFIG_DIR`), e.g. work and personal subscriptions. The panel lists the sessions of all of them with the account on each card, asks which account a new session runs on, and resumes a session on its own. Empty: only `~/.claude`, or `$CLAUDE_CONFIG_DIR`."
         },
         "claudeSessions.includeSubfolders": {
           "type": "boolean",
