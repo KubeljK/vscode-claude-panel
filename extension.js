@@ -16,6 +16,7 @@ const names = require('./names');
 const elsewhere = require('./elsewhere');
 const desktop = require('./desktop');
 const accountsOf = require('./accounts');
+const results = require('./results');
 
 // Each account's config directory (~/.claude, or $CLAUDE_CONFIG_DIR, unless claudeSessions.accounts lists several)
 // has projects/ with the transcripts and sessions/, where Claude Code writes <pid>.json for every running session:
@@ -59,6 +60,10 @@ const pending = new Map();
 const pendingColor = new Map();
 /** terminal → { id, name }: a /rename for the session in it, sent once it's idle (and only if it's still that one) */
 const pendingName = new Map();
+/** terminals whose session goes to the Claude desktop app (/desktop) once it's idle */
+const pendingDesktop = new Set();
+/** terminal → session id it sent there: the terminal closes once the app runs the session */
+const handedOff = new Map();
 /** terminal → session id last seen running in it */
 const termSession = new Map();
 /** terminal → consecutive polls with no Claude running in it */
@@ -353,6 +358,11 @@ function trackRemembered() {
       const has = [names.fromClaude(sessions.get(id)), e.nameSource === 'user' ? names.clean(e.name) : ''];
       if (rename.id === id && rename.name && !has.includes(rename.name)) commands.push(`/rename ${rename.name}`);
     }
+    // Last: /desktop ends the session here.
+    if (pendingDesktop.delete(e.terminal)) {
+      commands.push('/desktop');
+      handedOff.set(e.terminal, id);
+    }
     commands.forEach((c, i) => {
       setTimeout(() => e.terminal.sendText(c, false), i * 500);
       setTimeout(() => e.terminal.sendText('\r', false), i * 500 + 150);
@@ -370,6 +380,13 @@ function trackRemembered() {
     }
   }
   if (add.length || drop.length) setRemembered([...ids.filter((id) => !drop.includes(id)), ...add]);
+  // Not before the app runs the session: if /desktop failed, its terminal shows why.
+  for (const [t, id] of handedOff) {
+    const l = live.get(id);
+    if (!l || l.terminal || elsewhere.where(l) !== 'app') continue;
+    handedOff.delete(t);
+    t.dispose();
+  }
 }
 
 // ---------------------------------------------------------------- terminals
@@ -773,6 +790,10 @@ async function moreActions(id) {
     { label: '$(repo-forked) Fork into a new session', run: () => resume(id, { fork: true }) },
     ...(live.get(id) && !live.get(id).terminal ? [{ label: '$(play) Open here as well…', run: () => resume(id) }] : []),
     ...(live.get(id)?.terminal ? [{ label: '$(close) Close session', run: closeSession }] : []),
+    // No Claude desktop app on Linux.
+    ...(live.get(id)?.terminal && process.platform !== 'linux'
+      ? [{ label: '$(device-desktop) Resume in Claude Desktop', run: resumeInDesktop }]
+      : []),
     { label: '', kind: vscode.QuickPickItemKind.Separator },
     { label: '$(eye) Open read-only view', run: openView },
     {
@@ -809,6 +830,12 @@ async function closeSession(id) {
     if (ok !== 'Close') return;
   }
   e.terminal.dispose();
+}
+
+// Hands the session to the Claude desktop app with /desktop once it's idle; Claude Code ends it here.
+function resumeInDesktop(id) {
+  const t = live.get(id)?.terminal;
+  if (t) pendingDesktop.add(t);
 }
 
 // Move up / down within the session's section, where it has somewhere to go.
@@ -930,6 +957,20 @@ function openAgentView(sessionId, agentId, file = subagents.transcript(sessionId
   } catch {}
   const title = typeof meta.description === 'string' ? meta.description : typeof meta.agentType === 'string' ? meta.agentType : 'Subagent';
   viewerPanel.open({ file, kind: 'agent', sessionId, agentId, title });
+}
+
+// Documents VS Code can't show: in their own app, on this machine (in a remote window VS Code tries).
+const OWN_APP = /\.(pdf|docx?|xlsx?|pptx?|od[tsp]|pages|numbers|key)$/i;
+
+// A result on a session's card, by the key the panel sent back: only one its transcript recorded.
+async function openResult(id, key) {
+  const r = results.get(sessions.get(id)?.results, key);
+  if (!r) return;
+  if (r.key.startsWith('https://')) return vscode.env.openExternal(vscode.Uri.parse(r.key));
+  if (!fs.existsSync(r.key)) return vscode.window.showInformationMessage(`"${path.basename(r.key)}" has been moved or deleted.`);
+  const uri = vscode.Uri.file(r.key);
+  if (OWN_APP.test(r.key) && !vscode.env.remoteName) return vscode.env.openExternal(uri);
+  return vscode.commands.executeCommand('vscode.open', uri);
 }
 
 const runningAgents = (agents) => agents.filter((a) => a.state === 'run').length;
@@ -1066,6 +1107,7 @@ function payload() {
       current: id === current.id ? (current.behind ? 'behind' : 'front') : '',
       ctx: usage.forPayload(s, cfg().get('contextWindow')), // [tokens in use, window size]
       agents,
+      results: cfg().get('showResults') ? results.forPayload(s.results) : undefined, // what it published, opened or sent you
       // the session that started it, when the Claude desktop app says so: shown under it
       parent: lineage.get(id)?.parentCliId || '',
       fork: lineage.get(id)?.kind === 'fork',
@@ -1211,6 +1253,8 @@ async function handleMessage(m) {
       return moreActions(m.id);
     case 'openAgent':
       return openAgentView(m.id, m.agent);
+    case 'openResult':
+      return openResult(m.id, m.key);
     case 'reopenLast':
       return restoreLast();
     case 'dismissLast':
@@ -1270,6 +1314,8 @@ function activate(ctx) {
       pending.delete(t);
       pendingColor.delete(t);
       pendingName.delete(t);
+      pendingDesktop.delete(t);
+      handedOff.delete(t);
       if (id && t.exitStatus?.reason !== vscode.TerminalExitReason.Shutdown) {
         setRemembered(remembered().filter((x) => x !== id));
       }
@@ -1296,10 +1342,15 @@ function activate(ctx) {
         loadAccounts();
         return tick(); // other folders to read
       }
+      if (e.affectsConfiguration('claudeSessions.showResults') && results.enable(cfg().get('showResults'))) {
+        transcripts.forget(); // not read while it was off
+        tick();
+      }
       refresh();
     })
   );
 
+  results.enable(cfg().get('showResults'));
   const timer = setInterval(tick, POLL_MS);
   ctx.subscriptions.push({ dispose: () => clearInterval(timer) });
   offerSlotKeysInTerminal();
