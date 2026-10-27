@@ -433,6 +433,13 @@ function launchArgs(base, skip = cfg().get('skipPermissions'), account = account
   return [account.command, ...base, ...(skip ? [SKIP_FLAG] : []), ...extra].map(quote).join(' ');
 }
 
+// strictEnv: other extensions' env (Claude Code's IDE port changes on every start) would mark session
+// terminals stale and show "want to relaunch the terminal". Claude finds the IDE through autoConnectIde / /ide.
+function strictEnv() {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(ELECTRON_|VSCODE_|APPLICATION_INSIGHTS_)/.test(k)));
+  return { ...env, TERM_PROGRAM: 'vscode', COLORTERM: 'truecolor', LANG: env.LANG || 'en_US.UTF-8' };
+}
+
 function createTerminal(name, color, cwd, account = accounts[0]) {
   const env = accountsOf.terminalEnv(account);
   return vscode.window.createTerminal({
@@ -441,7 +448,8 @@ function createTerminal(name, color, cwd, account = accounts[0]) {
     color: new vscode.ThemeColor(COLORS[color] || 'terminal.ansiWhite'),
     iconPath: new vscode.ThemeIcon('sparkle'),
     location: terminalLocation(),
-    ...(env ? { env } : {}), // the account's config dir, for the command and everything Claude Code runs
+    strictEnv: true,
+    env: { ...strictEnv(), ...env }, // the account's config dir, for the command and everything Claude Code runs
     // Not transient: VS Code keeps these running across window reloads. After a full restart it revives
     // them as empty shells, which resume() reuses by name.
   });
