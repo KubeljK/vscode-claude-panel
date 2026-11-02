@@ -17,6 +17,7 @@ const elsewhere = require('./elsewhere');
 const desktop = require('./desktop');
 const accountsOf = require('./accounts');
 const results = require('./results');
+const terminals = require('./terminals');
 
 // Each account's config directory (~/.claude, or $CLAUDE_CONFIG_DIR, unless claudeSessions.accounts lists several)
 // has projects/ with the transcripts and sessions/, where Claude Code writes <pid>.json for every running session:
@@ -56,6 +57,8 @@ let accounts = [];
 let live = new Map();
 /** terminal → session id (or undefined for a new session), for terminals Claude hasn't registered yet */
 const pending = new Map();
+/** terminal → when it went pending, so a terminal whose Claude never registers stops showing "Starting…" */
+const pendingAt = new WeakMap();
 /** terminal → colour chosen for a new session, applied once its id is known */
 const pendingColor = new Map();
 /** terminal → { id, name }: a /rename for the session in it, sent once it's idle (and only if it's still that one) */
@@ -304,7 +307,8 @@ async function pollLive() {
   // Terminals we just started, before Claude has registered them.
   const running = new Set([...next.values()].map((e) => e.terminal).filter(Boolean));
   for (const [t, id] of pending) {
-    if (!vscode.window.terminals.includes(t) || running.has(t)) pending.delete(t);
+    const gone = !vscode.window.terminals.includes(t) || running.has(t);
+    if (gone || terminals.startExpired(pendingAt.get(t))) pending.delete(t);
     else if (id && !next.has(id)) next.set(id, { sessionId: id, status: 'starting', terminal: t });
   }
 
@@ -649,11 +653,11 @@ async function moveSessionsToSplit() {
 }
 
 // A terminal VS Code revived after a restart, with this session's name and nothing running in it, set up for the
-// same account.
-function idleTerminalNamed(name, account = accounts[0]) {
+// same account. Only one with a live shell: a revive that failed leaves a tab with no pty.
+async function idleTerminalNamed(name, account = accounts[0]) {
   const busy = new Set([...live.values()].map((e) => e.terminal).filter(Boolean));
   const env = accountsOf.terminalEnv(account);
-  return vscode.window.terminals.find(
+  const named = vscode.window.terminals.filter(
     (t) =>
       t.name.toLowerCase() === name.toLowerCase() &&
       !busy.has(t) &&
@@ -661,6 +665,7 @@ function idleTerminalNamed(name, account = accounts[0]) {
       !t.exitStatus &&
       accountsOf.sameEnv(t.creationOptions?.env, env)
   );
+  for (const t of named) if (await terminals.hasShell(t)) return t;
 }
 
 async function resume(id, { skip, fork, preserveFocus } = {}) {
@@ -697,7 +702,7 @@ async function resume(id, { skip, fork, preserveFocus } = {}) {
   const account = accountOf(id); // a fork stays on its session's account too
   const base = ['--resume', id, ...(fork ? ['--fork-session'] : []), ...(alias ? ['-n', alias] : [])];
   const t =
-    (!fork && idleTerminalNamed(title, account)) ||
+    (!fork && (await idleTerminalNamed(title, account))) ||
     createTerminal(fork ? `${title} (fork)` : title, colorOf(id), s.cwd || e?.cwd, account);
   t.sendText(launchArgs(base, skip, account));
   const color = !fork && colors.toSend(prefs()[id], s.color);
@@ -707,6 +712,7 @@ async function resume(id, { skip, fork, preserveFocus } = {}) {
   if (rename) pendingName.set(t, { id, name: rename });
   t.show(preserveFocus);
   pending.set(t, fork ? undefined : id);
+  pendingAt.set(t, Date.now());
   if (!fork) {
     const ids = remembered();
     if (!ids.includes(id)) await setRemembered([...ids, id]);
@@ -729,6 +735,7 @@ async function newSession() {
   t.sendText(launchArgs(name ? ['-n', name] : [], undefined, account));
   t.show();
   pending.set(t, undefined);
+  pendingAt.set(t, Date.now());
   if (color) pendingColor.set(t, color);
   refresh();
 }
