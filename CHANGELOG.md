@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0
 
 - **Cache timer**: a running session that's idle or waiting for you says next to its time how long its prompt
   cache stays warm, *◷ 42m*, amber in the last five minutes, then *cold*. It's 1 h or 5 min from Claude's last
