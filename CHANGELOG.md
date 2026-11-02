@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+- **Cache timer**: a running session that's idle or waiting for you says next to its time how long its prompt
+  cache stays warm, *◷ 42m*, amber in the last five minutes, then *cold*. It's 1 h or 5 min from Claude's last
+  reply, as its transcript records the cache it wrote (5 min when it doesn't say). The tooltip has when it goes
+  cold and how many tokens it'd take to cache again. `claudeSessions.showCacheTimer` turns it off.
+- **Results**: *› N results* on a card lists the artifacts and docs a session published, the pull and merge
+  requests it opened, the files it sent you and the plans you approved. Click one to open it. Turn it off with
+  `claudeSessions.showResults`. Thanks to Klemen Kubelj.
+- **Resume in Claude Desktop**, in the `⋯` menu of a session open in a terminal (macOS and Windows): sends
+  `/desktop` once the session is idle and closes the terminal when the desktop app runs it. Only while that
+  terminal is still the session's: if nothing comes of it within a minute, or another session runs there by then,
+  the terminal stays. Offered only for sessions on Claude Code's default account (`~/.claude`), or with no
+  accounts configured, since the desktop app runs them on the account it's signed into. Thanks to Klemen Kubelj.
+- **Several Claude accounts** (`claudeSessions.accounts`, one config directory each): the panel lists the
+  sessions of all of them, shows the account on each card, asks which one a new session runs on, and resumes a
+  session on its own. With more than one, the command the panel types says which account itself
+  (`CLAUDE_CONFIG_DIR=… claude …`, or `env -u CLAUDE_CONFIG_DIR claude …` for `~/.claude`), so a terminal VS Code
+  revived after a reload, or a shell profile, can't start it on another; on Windows a terminal is reused only when
+  it was made for that account. Two entries for the same folder (a symlink) count once, and a session found under
+  two accounts (a copied config directory) is listed once, from its newer transcript or the account it runs on.
+  *Copy resume command* unsets `CLAUDE_CONFIG_DIR` for `~/.claude` where VS Code has it set. Thanks to Klemen
+  Kubelj.
+
 ## 0.12.0
 
 - **What's running everywhere**, at the top of the panel: *3 working · 1 needs you · 2 agents running*, counted

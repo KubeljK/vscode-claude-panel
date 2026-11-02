@@ -16,6 +16,7 @@ const names = require('./names');
 const elsewhere = require('./elsewhere');
 const desktop = require('./desktop');
 const accountsOf = require('./accounts');
+const handoff = require('./handoff');
 const results = require('./results');
 
 // Each account's config directory (~/.claude, or $CLAUDE_CONFIG_DIR, unless claudeSessions.accounts lists several)
@@ -62,7 +63,7 @@ const pendingColor = new Map();
 const pendingName = new Map();
 /** terminals whose session goes to the Claude desktop app (/desktop) once it's idle */
 const pendingDesktop = new Set();
-/** terminal → session id it sent there: the terminal closes once the app runs the session */
+/** terminal → { id, at, emptySince }: the session it sent there; the terminal closes once the app runs it (handoff.js) */
 const handedOff = new Map();
 /** terminal → session id last seen running in it */
 const termSession = new Map();
@@ -174,7 +175,8 @@ async function scan() {
   }
   const infos = await Promise.all(files.map((f) => transcripts.readSession(f).catch(() => undefined)));
   scanned = infos.filter(Boolean);
-  sessions = new Map(scanned.filter((s) => s.hasMessages).map((s) => [s.id, s]));
+  // A session in two accounts' folders (a copied config dir, a symlinked projects/): one copy, the same each time.
+  sessions = accountsOf.pickTranscripts(scanned.filter((s) => s.hasMessages), accounts, (id) => live.get(id)?.account);
   await scanElsewhere();
 }
 
@@ -231,7 +233,7 @@ async function readLive() {
     }
   }
   liveFormat = format;
-  return out;
+  return accountsOf.pickLive(out); // one record per session, should two accounts list it
 }
 
 // Windows has no ps; CIM has the same pid → parent table, but takes a couple of seconds to ask.
@@ -361,7 +363,7 @@ function trackRemembered() {
     // Last: /desktop ends the session here.
     if (pendingDesktop.delete(e.terminal)) {
       commands.push('/desktop');
-      handedOff.set(e.terminal, id);
+      handedOff.set(e.terminal, { id, at: Date.now(), emptySince: 0 });
     }
     commands.forEach((c, i) => {
       setTimeout(() => e.terminal.sendText(c, false), i * 500);
@@ -380,12 +382,16 @@ function trackRemembered() {
     }
   }
   if (add.length || drop.length) setRemembered([...ids.filter((id) => !drop.includes(id)), ...add]);
-  // Not before the app runs the session: if /desktop failed, its terminal shows why.
-  for (const [t, id] of handedOff) {
-    const l = live.get(id);
-    if (!l || l.terminal || elsewhere.where(l) !== 'app') continue;
+  // Not before the app runs the session: if /desktop failed, its terminal shows why. And only while the terminal is
+  // still that session's: the hand-off lapses once another session runs there, or nothing came of it for a while.
+  for (const [t, h] of handedOff) {
+    const running = [...live].find(([, e]) => e.terminal === t)?.[0] || (termSession.has(t) && termSession.get(t) !== h.id ? termSession.get(t) : undefined);
+    const l = live.get(h.id);
+    const inApp = !!l && !l.terminal && elsewhere.where(l) === 'app';
+    const what = handoff.step(h, { running, inApp });
+    if (what === 'keep') continue;
     handedOff.delete(t);
-    t.dispose();
+    if (what === 'dispose') t.dispose();
   }
 }
 
@@ -432,6 +438,13 @@ function launchArgs(base, skip = cfg().get('skipPermissions'), account = account
   const extra = cfg().get('extraArgs').filter((a) => a !== SKIP_FLAG);
   return [account.command, ...base, ...(skip ? [SKIP_FLAG] : []), ...extra].map(quote).join(' ');
 }
+
+// What the panel types: with several accounts (or CLAUDE_CONFIG_DIR in VS Code's own environment) the command says
+// which one itself, so a reused or revived terminal, or a shell profile, can't run it on another (POSIX shells; on
+// Windows the terminal's env does it, see idleTerminalNamed). Otherwise exactly launchArgs.
+const typedEnv = (account) => accountsOf.commandEnv(account, { several: severalAccounts() });
+const typedCommand = (base, skip, account = accounts[0]) =>
+  accountsOf.envPrefix(typedEnv(account), quote) + launchArgs(base, skip, account);
 
 function createTerminal(name, color, cwd, account = accounts[0]) {
   const env = accountsOf.terminalEnv(account);
@@ -649,17 +662,19 @@ async function moveSessionsToSplit() {
 }
 
 // A terminal VS Code revived after a restart, with this session's name and nothing running in it, set up for the
-// same account.
+// same account: any such terminal when the typed command sets the account itself, else only one created with the
+// account's env (a revived terminal has none of its own and gets VS Code's).
 function idleTerminalNamed(name, account = accounts[0]) {
   const busy = new Set([...live.values()].map((e) => e.terminal).filter(Boolean));
   const env = accountsOf.terminalEnv(account);
+  const pinned = !!typedEnv(account);
   return vscode.window.terminals.find(
     (t) =>
       t.name.toLowerCase() === name.toLowerCase() &&
       !busy.has(t) &&
       !pending.has(t) &&
       !t.exitStatus &&
-      accountsOf.sameEnv(t.creationOptions?.env, env)
+      (pinned || accountsOf.sameEnv(t.creationOptions?.env, env))
   );
 }
 
@@ -699,7 +714,7 @@ async function resume(id, { skip, fork, preserveFocus } = {}) {
   const t =
     (!fork && idleTerminalNamed(title, account)) ||
     createTerminal(fork ? `${title} (fork)` : title, colorOf(id), s.cwd || e?.cwd, account);
-  t.sendText(launchArgs(base, skip, account));
+  t.sendText(typedCommand(base, skip, account));
   const color = !fork && colors.toSend(prefs()[id], s.color);
   if (color) pendingColor.set(t, color);
   // -n names it for this run; /rename, once it's at its prompt, makes that Claude Code's own name for the session.
@@ -726,7 +741,7 @@ async function newSession() {
   const color = await pickColor('Terminal colour');
   if (color === undefined) return;
   const t = createTerminal(name || 'claude', color, undefined, account);
-  t.sendText(launchArgs(name ? ['-n', name] : [], undefined, account));
+  t.sendText(typedCommand(name ? ['-n', name] : [], undefined, account));
   t.show();
   pending.set(t, undefined);
   if (color) pendingColor.set(t, color);
@@ -790,8 +805,9 @@ async function moreActions(id) {
     { label: '$(repo-forked) Fork into a new session', run: () => resume(id, { fork: true }) },
     ...(live.get(id) && !live.get(id).terminal ? [{ label: '$(play) Open here as well…', run: () => resume(id) }] : []),
     ...(live.get(id)?.terminal ? [{ label: '$(close) Close session', run: closeSession }] : []),
-    // No Claude desktop app on Linux.
-    ...(live.get(id)?.terminal && process.platform !== 'linux'
+    // No Claude desktop app on Linux. It runs the session on the account it's signed into, so only for sessions on
+    // Claude Code's default one (~/.claude), or when no accounts are configured.
+    ...(live.get(id)?.terminal && process.platform !== 'linux' && (!accounts[0]?.label || accountsOf.isDefault(accountOf(id)))
       ? [{ label: '$(device-desktop) Resume in Claude Desktop', run: resumeInDesktop }]
       : []),
     { label: '', kind: vscode.QuickPickItemKind.Separator },
@@ -806,8 +822,8 @@ async function moreActions(id) {
       // claude --resume only finds a session from the folder it was started in, and with its account's config dir.
       run: () => {
         const account = accountOf(id);
-        const dir = accountsOf.terminalEnv(account)?.CLAUDE_CONFIG_DIR;
-        const env = dir ? `CLAUDE_CONFIG_DIR=${quote(dir)} ` : '';
+        // the account's dir, or for ~/.claude the variable unset when VS Code's own environment sets it
+        const env = accountsOf.envPrefix(accountsOf.terminalEnv(account), quote);
         const cd = s.cwd ? `cd ${quote(s.cwd)} && ` : '';
         return vscode.env.clipboard.writeText(cd + env + launchArgs(['--resume', id], undefined, account));
       },
@@ -1106,6 +1122,8 @@ function payload() {
       unread: unread.has(id),
       current: id === current.id ? (current.behind ? 'behind' : 'front') : '',
       ctx: usage.forPayload(s, cfg().get('contextWindow')), // [tokens in use, window size]
+      // when its prompt cache goes cold, while it's running: [coldAt, ttl] ('1h', '5m', '' unknown); counted down in the panel
+      cache: l && cfg().get('showCacheTimer') && usage.coldAt(s) ? [usage.coldAt(s), s.cacheTtl || ''] : undefined,
       agents,
       results: cfg().get('showResults') ? results.forPayload(s.results) : undefined, // what it published, opened or sent you
       // the session that started it, when the Claude desktop app says so: shown under it

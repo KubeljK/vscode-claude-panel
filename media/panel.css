@@ -590,6 +590,21 @@ body.skipping .switch-label {
   white-space: nowrap;
 }
 
+/* The prompt cache countdown next to a running session's time: amber in its last minutes, muted once cold. */
+.cache {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cache.soon {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.cache.cold {
+  opacity: 0.75;
+}
+
 .sep {
   margin: 0 5px;
   opacity: 0.6;

@@ -408,6 +408,11 @@
           "minimum": 0,
           "description": "A session running elsewhere (another window, a terminal outside VS Code, the Claude desktop app) that has been idle this many hours leaves \"Running elsewhere\" and is listed by day with the others, still marked as running. 0 = keep them all under \"Running elsewhere\"."
         },
+        "claudeSessions.showCacheTimer": {
+          "type": "boolean",
+          "default": true,
+          "description": "On a running session's card, while it's idle or waiting for you: how long until its prompt cache goes cold (1 h or 5 min after Claude's last reply), and then 'cold'."
+        },
         "claudeSessions.showResults": {
           "type": "boolean",
           "default": true,

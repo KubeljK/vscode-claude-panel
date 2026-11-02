@@ -75,6 +75,7 @@ function readChunk(info, text) {
   for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) lines++;
   info.lines = (info.lines || 0) + lines;
   Object.assign(info, usage.scan(text));
+  Object.assign(info, usage.cacheScan(text, info)); // when its prompt cache goes cold
   subagents.scanText(info, text); // subagent completions, for subagents.update()
   info.act = activity.scan(info.act, text); // what it's doing now, for the card's activity line
   info.results = results.scan(info.results, text); // what it published, opened or sent you

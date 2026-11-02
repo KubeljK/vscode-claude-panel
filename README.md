@@ -42,6 +42,9 @@ terminals, and reopen them after a restart.
   opened, the files it sent you and the plans you approved. Click one to open it: links in your browser, files in
   VS Code, PDFs and Office documents in their own app. Turn it off with `claudeSessions.showResults`.
 - **Context usage**: a bar with tokens in use against the context window.
+- **Cache timer**: while a running session is idle or waiting for you, *◷ 42m* next to its time says how long until
+  its prompt cache goes cold (1 h or 5 min after Claude's last reply, as the transcript records it), amber in the
+  last five minutes, then *cold*. The tooltip has the time it goes cold and the tokens it'd take to cache again.
 - **Current session**: the one whose terminal is active is framed in its colour.
 - **Your order**: drag open and pinned sessions within their section, or *Move up* / *Move down* in `⋯`. Cmd+1–9 follow it.
 - **Skip permissions** switch adds `--dangerously-skip-permissions` to every launch.
@@ -104,6 +107,7 @@ changes.
 | `claudeSessions.maxRecent` | `100` | how many past sessions to list |
 | `claudeSessions.elsewhereIdleHours` | `1` | a session running elsewhere idle this many hours moves from *Running elsewhere* to the day groups; `0` = never |
 | `claudeSessions.showResults` | `true` | list each session's results on its card |
+| `claudeSessions.showCacheTimer` | `true` | on a running session's card, the time until its prompt cache goes cold |
 | `claudeSessions.contextWindow` | `0` | context window for the usage bar; `0` = auto (1M, or 200K for Claude 3/4 models) |
 | `claudeSessions.command` | `claude` | the command that starts Claude Code |
 | `claudeSessions.extraArgs` | `[]` | extra arguments for every launch |

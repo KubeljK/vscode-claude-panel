@@ -608,7 +608,7 @@
           ${s.lastPrompt ? `<div class="prompt">${esc(s.lastPrompt)}</div>` : ''}
           ${activityLine(s)}
           <div class="foot">
-          ${meta.length ? `<div class="meta">${meta.map(esc).join('<span class="sep">·</span>')}</div>` : ''}
+          ${meta.length || cacheTag(s) ? `<div class="meta">${[...(s.open || s.elsewhere ? [esc(meta.shift()) + cacheTag(s)] : []), ...meta.map(esc)].join('<span class="sep">·</span>')}</div>` : ''}
           ${ctxRow(s)}
           </div>
         </div>
@@ -780,6 +780,7 @@
     const focusedId = document.activeElement?.closest?.('.card')?.dataset.id;
     const scroll = listEl.scrollTop;
     listEl.innerHTML = html;
+    for (const el of listEl.querySelectorAll('.cache[data-cold]')) updateCache(el);
     listEl.scrollTop = scroll;
     if (focusedId) listEl.querySelector(`.card[data-id="${CSS.escape(focusedId)}"]`)?.focus();
     $('emptyNew')?.addEventListener('click', () => vscode.postMessage({ type: 'new' }));
@@ -792,12 +793,51 @@
     render();
   });
 
+  // ---------------------------------------------------------------- prompt cache
+
+  // How long until a running session's prompt cache goes cold, next to its time: "◷ 42m", amber in the last five
+  // minutes, then "cold". Not while it's working (each request writes the cache again). Counted down here from
+  // coldAt, so the extension's state doesn't change by the minute.
+  const CACHE_WARN_MS = 5 * 60000;
+
+  function cacheTag(s) {
+    if (!s.cache || (s.status !== 'idle' && s.status !== 'waiting')) return '';
+    const [coldAt, ttl] = s.cache;
+    return `<span class="cache" data-cold="${+coldAt}" data-ttl="${esc(ttl)}" data-ctx="${s.ctx ? +s.ctx[0] : 0}">${esc(cacheText(coldAt))}</span>`;
+  }
+
+  function cacheText(coldAt, now = Date.now()) {
+    const left = coldAt - now;
+    return left <= 0 ? 'cold' : left < 60000 ? '◷ <1m' : `◷ ${Math.floor(left / 60000)}m`;
+  }
+
+  // Text, colour and tooltip from the element's data, for the first render and every tick after it.
+  function updateCache(el, now = Date.now()) {
+    const coldAt = +el.dataset.cold;
+    const left = coldAt - now;
+    el.textContent = cacheText(coldAt, now);
+    el.classList.toggle('soon', left > 0 && left <= CACHE_WARN_MS);
+    el.classList.toggle('cold', left <= 0);
+    const ttl = el.dataset.ttl === '1h' ? '1 h cache' : el.dataset.ttl === '5m' ? '5 min cache' : 'Cache time unknown (assumed 5 min)';
+    const at = new Date(coldAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const ctx = +el.dataset.ctx;
+    el.title = [
+      `${ttl}, from Claude's last reply`,
+      left > 0 ? `goes cold at ${at}` : `went cold at ${at}`,
+      ...(ctx ? [`${tokens(ctx)} tokens to re-cache`] : []),
+    ].join(' · ');
+  }
+
   // Keep "5m ago" honest between state updates.
   setInterval(render, 60000);
   // Running subagents' elapsed time, without a full render.
   setInterval(() => {
     for (const el of document.querySelectorAll('[data-since]')) el.textContent = elapsed(+el.dataset.since);
   }, 5000);
+  // The cache countdown, likewise.
+  setInterval(() => {
+    for (const el of document.querySelectorAll('.cache[data-cold]')) updateCache(el);
+  }, 15000);
 
   render();
   vscode.postMessage({ type: 'ready' });

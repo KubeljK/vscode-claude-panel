@@ -41,6 +41,44 @@ function scan(text) {
 }
 
 /**
+ * When the prompt cache was last written and for how long it lasts, as Claude Code's cache works (like the
+ * cache-clock status line): the latest main-chain assistant message with usage sets cacheAt (its timestamp); its
+ * usage.cache_creation says the TTL, 1 h (ephemeral_1h_input_tokens) or 5 min (ephemeral_5m_input_tokens), and when it
+ * created nothing, an earlier message's does. `prev` is what earlier chunks found: the TTL carries over from it.
+ * Returns { cacheAt, cacheTtl: '1h' | '5m' | '' } to merge into the session info, or undefined when `text` has no
+ * such message.
+ */
+function cacheScan(text, prev = {}) {
+  let cacheAt = 0;
+  let end = text.length;
+  while (end > 0) {
+    const start = text.lastIndexOf('\n', end - 1) + 1;
+    const line = text.slice(start, end);
+    end = start - 1;
+    if (line.includes('"isSidechain":true') || !line.includes('"type":"assistant"') || !line.includes('"usage"')) continue;
+    let d;
+    try {
+      d = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const m = d.type === 'assistant' && !d.isSidechain && d.message;
+    if (!m?.usage || m.model === '<synthetic>') continue;
+    if (!cacheAt) {
+      cacheAt = Date.parse(d.timestamp) || 0;
+      if (!cacheAt) continue;
+    }
+    const c = m.usage.cache_creation || {};
+    if (c.ephemeral_1h_input_tokens > 0) return { cacheAt, cacheTtl: '1h' };
+    if (c.ephemeral_5m_input_tokens > 0) return { cacheAt, cacheTtl: '5m' };
+  }
+  return cacheAt ? { cacheAt, cacheTtl: prev.cacheTtl || '' } : undefined;
+}
+
+/** When a session's cache goes cold, in epoch ms, or 0 when nothing says; an unknown TTL counts as 5 min. */
+const coldAt = (info) => (info?.cacheAt > 0 ? info.cacheAt + (info.cacheTtl === '1h' ? 3600000 : 300000) : 0);
+
+/**
  * Context window for a model. Transcripts don't record it, so:
  *  - an explicit `[1m]` model suffix (Claude Code writes it to requestedModel) → 1M
  *  - Claude 3.x and 4.x models → 200K (their 1M variants carry `[1m]`)
@@ -59,4 +97,4 @@ function forPayload(info, override) {
   return [info.ctx, override > 0 ? override : contextWindow(info.ctxModel, info.ctx)];
 }
 
-module.exports = { scan, contextWindow, forPayload };
+module.exports = { scan, cacheScan, coldAt, contextWindow, forPayload };
