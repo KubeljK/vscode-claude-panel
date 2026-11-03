@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Resuming a session no longer picks a terminal the panel closed itself (*Close session*, or after handing the
+  session to Claude Desktop), which some editors keep listing and which fail when used again; nothing still queued
+  for it (`/color`, `/rename`) is sent. Thanks to Klemen Kubelj.
+- A terminal VS Code revived after a restart is reused only while its shell still runs; *Starting…* clears after
+  30 s. Thanks to Klemen Kubelj.
+
 ## 0.13.0
 
 - **Cache timer**: a running session that's idle or waiting for you says next to its time how long its prompt
