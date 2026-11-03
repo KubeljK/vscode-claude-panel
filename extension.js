@@ -394,7 +394,7 @@ function trackRemembered() {
     if (what === 'keep') continue;
     handedOff.delete(t);
     if (what === 'dispose') {
-      closed.add(t);
+      forget(t);
       t.dispose();
     }
   }
@@ -668,6 +668,15 @@ async function moveSessionsToSplit() {
 
 const openTerminals = () => vscode.window.terminals.filter((t) => !closed.has(t));
 
+// A terminal the panel closes: never reused, and nothing still queued for it (/color, /rename, /desktop) is sent.
+function forget(t) {
+  closed.add(t);
+  pendingColor.delete(t);
+  pendingName.delete(t);
+  pendingDesktop.delete(t);
+  handedOff.delete(t);
+}
+
 // A terminal VS Code revived after a restart, with this session's name and nothing running in it, set up for the
 // same account: any such terminal when the typed command sets the account itself, else only one created with the
 // account's env (a revived terminal has none of its own and gets VS Code's).
@@ -852,7 +861,7 @@ async function closeSession(id) {
     );
     if (ok !== 'Close') return;
   }
-  closed.add(e.terminal);
+  forget(e.terminal);
   e.terminal.dispose();
   tick();
 }
