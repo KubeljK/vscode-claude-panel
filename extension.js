@@ -67,6 +67,8 @@ const pendingDesktop = new Set();
 const handedOff = new Map();
 /** terminal → session id last seen running in it */
 const termSession = new Map();
+/** terminals we disposed: Cursor sometimes never reports them closed, and they throw if used again */
+const closed = new WeakSet();
 /** terminal → consecutive polls with no Claude running in it */
 const termMisses = new Map();
 /** child session id → { parentCliId, kind }, from the Claude desktop app's metadata; and parent → its children */
@@ -284,7 +286,7 @@ async function pollLive() {
   const parents = records.length ? await parentPids(records) : new Map();
   const shells = new Map();
   await Promise.all(
-    vscode.window.terminals.map(async (t) => {
+    openTerminals().map(async (t) => {
       const pid = await t.processId;
       if (pid) shells.set(pid, t);
     })
@@ -306,7 +308,7 @@ async function pollLive() {
   // Terminals we just started, before Claude has registered them.
   const running = new Set([...next.values()].map((e) => e.terminal).filter(Boolean));
   for (const [t, id] of pending) {
-    if (!vscode.window.terminals.includes(t) || running.has(t)) pending.delete(t);
+    if (!openTerminals().includes(t) || running.has(t)) pending.delete(t);
     else if (id && !next.has(id)) next.set(id, { sessionId: id, status: 'starting', terminal: t });
   }
 
@@ -391,7 +393,10 @@ function trackRemembered() {
     const what = handoff.step(h, { running, inApp });
     if (what === 'keep') continue;
     handedOff.delete(t);
-    if (what === 'dispose') t.dispose();
+    if (what === 'dispose') {
+      closed.add(t);
+      t.dispose();
+    }
   }
 }
 
@@ -661,6 +666,8 @@ async function moveSessionsToSplit() {
   }
 }
 
+const openTerminals = () => vscode.window.terminals.filter((t) => !closed.has(t));
+
 // A terminal VS Code revived after a restart, with this session's name and nothing running in it, set up for the
 // same account: any such terminal when the typed command sets the account itself, else only one created with the
 // account's env (a revived terminal has none of its own and gets VS Code's).
@@ -668,7 +675,7 @@ function idleTerminalNamed(name, account = accounts[0]) {
   const busy = new Set([...live.values()].map((e) => e.terminal).filter(Boolean));
   const env = accountsOf.terminalEnv(account);
   const pinned = !!typedEnv(account);
-  return vscode.window.terminals.find(
+  return openTerminals().find(
     (t) =>
       t.name.toLowerCase() === name.toLowerCase() &&
       !busy.has(t) &&
@@ -845,7 +852,9 @@ async function closeSession(id) {
     );
     if (ok !== 'Close') return;
   }
+  closed.add(e.terminal);
   e.terminal.dispose();
+  tick();
 }
 
 // Hands the session to the Claude desktop app with /desktop once it's idle; Claude Code ends it here.
