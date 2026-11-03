@@ -25,12 +25,14 @@ const CALL_RE = /"id":"(toolu_\w+)","name":"(?:Agent|Task)"/g;
 const RESULT_RE = /"tool_use_id":"(toolu_\w+)"/g;
 const LAUNCHED_RE = /Async agent launched|Fork started/;
 const WF_LAUNCH_RE = /"taskType":"local_workflow"/g;
+// Workflow journal entries that say an agent has returned, and how; anything else (started, progress…) doesn't.
+const JOURNAL_DONE = { result: 'completed', completed: 'completed', failed: 'failed', error: 'failed' };
 
 /** sessionId → { dir, key, agents: [...] } for sessions the panel asked about */
 const bySession = new Map();
 /** agent transcript → { offset, info } for parent agents scanned incrementally */
 const agentScans = new Map();
-/** workflow journal → { offset, mtime, done: Map(agentId → status), phase } */
+/** workflow journal → { offset, mtime, first, done: Map(agentId → status), phase }; journals of runs no longer listed are dropped */
 const journals = new Map();
 /** meta file → { mtime, meta }; agent transcript → first timestamp */
 const metaCache = new Map();
@@ -94,7 +96,8 @@ function scanText(info, text) {
       const near = lineAt(text, m.index);
       const run = (/"runId":"(wf_[\w-]+)"/.exec(near) || [])[1];
       const task = (/"taskId":"(\w+)"/.exec(near) || [])[1];
-      if (run && task) (info.workflows ||= new Map()).set(run, { task, name: (/"workflowName":"([^"]*)"/.exec(near) || [])[1] || run });
+      const name = (/"workflowName":"([^"]*)"/.exec(near) || [])[1] || run;
+      if (run && task) (info.workflows ||= new Map()).set(run, { task, name, at: lineTime(text, m.index) });
     }
   }
 }
@@ -130,7 +133,11 @@ async function scanAgentFile(file, size) {
 async function readJournal(file) {
   const st = await fs.promises.stat(file);
   let j = journals.get(file);
-  if (!j || st.size < j.offset) journals.set(file, (j = { offset: 0, done: new Map(), phase: '' }));
+  if (!j || st.size < j.offset) {
+    // first: when the run began, should its launch not be in the session's transcript; it doesn't move on later writes
+    j = { offset: 0, done: new Map(), phase: '', first: st.birthtimeMs > 0 ? st.birthtimeMs : st.mtimeMs };
+    journals.set(file, j);
+  }
   j.mtime = st.mtimeMs;
   if (st.size > j.offset) {
     const { text, end } = await appended(file, j.offset, st.size);
@@ -141,8 +148,12 @@ async function readJournal(file) {
       } catch {
         continue;
       }
-      if (e.type === 'started') j.phase = e.phase || j.phase;
-      else if (e.agentId && e.type !== 'launched') j.done.set(e.agentId, /fail|error/i.test(e.type) ? 'failed' : 'completed');
+      if (!e || typeof e !== 'object') continue;
+      // An agent has returned only on a result or a failure; started (again) means it's running.
+      if (e.type === 'started') {
+        j.phase = e.phase || j.phase;
+        if (e.agentId) j.done.delete(e.agentId);
+      } else if (e.agentId && JOURNAL_DONE[e.type]) j.done.set(e.agentId, JOURNAL_DONE[e.type]);
     }
     j.offset += end;
   }
@@ -182,6 +193,9 @@ async function startOf(file, st) {
 async function update(sessions, live, now = Date.now()) {
   if (requested.size) wanted = requested;
   requested = new Set();
+  const seenJournals = new Set();
+  // A session skipped this pass (unchanged since) keeps its journals: they're under its folder.
+  const keptJournal = (f) => [...bySession.values()].some((x) => f.startsWith(x.dir + path.sep));
   await Promise.all(
     [...wanted].map(async (id) => {
       const s = sessions.get(id);
@@ -198,7 +212,9 @@ async function update(sessions, live, now = Date.now()) {
       const found = [{ d: dir, aids: await ids(dir) }];
       for (const run of (await fs.promises.readdir(path.join(dir, 'workflows')).catch(() => [])).filter((n) => /^wf_[\w-]+$/.test(n))) {
         const d = path.join(dir, 'workflows', run);
-        const j = await readJournal(path.join(d, 'journal.jsonl')).catch(() => undefined);
+        const jfile = path.join(d, 'journal.jsonl');
+        seenJournals.add(jfile);
+        const j = await readJournal(jfile).catch(() => undefined);
         if (!j) continue;
         runs.set(run, j);
         found.push({ d, run, aids: await ids(d) });
@@ -296,19 +312,22 @@ async function update(sessions, live, now = Date.now()) {
           depth: 1,
           state,
           phase: j.phase,
-          start: Math.round(Math.min(...kids.map((x) => x.start), j.mtime)),
+          start: Math.round(launch?.at || Math.min(...kids.map((x) => x.start), j.first)),
           end: state === 'run' ? 0 : Math.round(note?.at || Math.max(j.mtime, ...kids.map((x) => x.end))),
         };
       });
       const latest = (a) => (a.state === 'run' ? Infinity : a.end);
       const order = (a, b) => latest(b) - latest(a) || b.start - a.start;
       const top = [...agents.filter((x) => !x.wf), ...flows].sort(order).slice(0, RECENT);
-      const list = top.flatMap((x) => (x.workflow ? [x, ...agents.filter((k) => k.wf === x.id).sort(order)] : [x]));
+      // A run's agents too: the newest RECENT, as for the session's own.
+      const list = top.flatMap((x) => (x.workflow ? [x, ...agents.filter((k) => k.wf === x.id).sort(order).slice(0, RECENT)] : [x]));
       const files = new Map(raw.filter((a) => a.run).map((a) => [a.aid, a.file]));
       bySession.set(id, { dir, key, agents: list, files });
     })
   );
   for (const id of bySession.keys()) if (!wanted.has(id)) bySession.delete(id);
+  // Journals of runs of sessions no longer listed, or gone: read again from the start should they come back.
+  for (const f of journals.keys()) if (!seenJournals.has(f) && !keptJournal(f)) journals.delete(f);
 }
 
 /** Compact list for the panel payload; also marks the session as shown, for the next update(). */

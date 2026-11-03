@@ -193,3 +193,14 @@ test('subagent files: only plain ids, only files that exist, next to a session o
   const ids = await viewer.agentIds(session);
   assert.equal(ids.get('toolu_07Par'), 'a07parent');
 });
+
+test('agentsDir: an agent of a Workflow run has its subagents in its run folder', () => {
+  const sub = path.join(path.sep, 'p', 'proj', 'sid', 'subagents');
+  const run = path.join(sub, 'workflows', 'wf_run-001');
+  assert.equal(viewer.agentsDir(path.join(run, 'agent-w1.jsonl')), run);
+  assert.equal(viewer.agentsDir(path.join(sub, 'agent-a1.jsonl')), sub);
+  assert.equal(viewer.agentsDir(path.join(path.sep, 'p', 'proj', 'sid.jsonl')), sub);
+  // a folder that merely is named "workflows" elsewhere doesn't count
+  const odd = path.join(path.sep, 'p', 'workflows', 'x');
+  assert.equal(viewer.agentsDir(path.join(odd, 'sess.jsonl')), path.join(odd, 'sess', 'subagents'));
+});

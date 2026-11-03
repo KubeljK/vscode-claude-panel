@@ -176,3 +176,62 @@ test('workflow runs: one row each, their agents right under it', async () => {
   const after = await agentsOf(sessions, new Map());
   assert.deepEqual([after['wf_live-002'].state, after.w2b.state, after['wf_done-001'].state], ['stopped', 'stopped', 'done']);
 });
+
+// One more run, written as a test wants it: { agentId: [start hms, journal entries after "started"] }.
+function addRun(run, task, at, list, extraJournal = []) {
+  return (sub, file) => {
+    addWorkflows(sub, file);
+    const line = (o) => JSON.stringify({ isSidechain: false, sessionId: SID, parentUuid: 'x', ...o }) + '\n';
+    const result = { status: 'async_launched', taskId: task, taskType: 'local_workflow', workflowName: run, runId: run };
+    fs.appendFileSync(file, line({ timestamp: `2026-03-02T${at}.000Z`, type: 'user', toolUseResult: result, message: { role: 'user', content: 'Workflow launched in background.' } }));
+    const d = path.join(sub, 'workflows', run);
+    fs.mkdirSync(d, { recursive: true });
+    const journal = [];
+    for (const [id, [hms, after]] of Object.entries(list)) {
+      fs.writeFileSync(path.join(d, `agent-${id}.meta.json`), JSON.stringify({ agentType: 'workflow-subagent', description: id, spawnDepth: 1 }));
+      fs.writeFileSync(path.join(d, `agent-${id}.jsonl`), `{"isSidechain":true,"agentId":"${id}","type":"user","timestamp":"2026-03-02T${hms}.000Z"}\n`);
+      fs.utimesSync(path.join(d, `agent-${id}.jsonl`), T(hms) / 1000, T(hms) / 1000);
+      journal.push(JSON.stringify({ type: 'started', agentId: id, key: id }));
+      for (const e of after) journal.push(JSON.stringify({ agentId: id, key: id, ...e }));
+    }
+    fs.writeFileSync(path.join(d, 'journal.jsonl'), [...journal, ...extraJournal].join('\n') + '\n');
+  };
+}
+
+const LIVE = () => new Map([[SID, { sessionId: SID, startedAt: T('10:00:00') }]]);
+
+test('workflow journal: only a result or a failure means an agent has returned; started again, it runs again', async () => {
+  const { sessions } = await setup(
+    addRun('wf_strict-003', 'wstr3', '10:13:00', {
+      p1: ['10:14:00', [{ type: 'progress' }, { type: 'message', text: 'half way' }]],
+      p2: ['10:14:30', [{ type: 'result', result: 'ok' }, { type: 'started' }]],
+      p3: ['10:15:00', [{ type: 'failed' }]],
+      p4: ['10:15:30', [{ type: 'result', result: 'ok' }]],
+    }, ['{"type":"result"}', 'not json', '"a string"'])
+  );
+  const a = await agentsOf(sessions, LIVE());
+  assert.deepEqual([a.p1.state, a.p2.state, a.p3.state, a.p4.state], ['run', 'run', 'failed', 'done']);
+  assert.equal(a['wf_strict-003'].state, 'run');
+});
+
+test('workflow run: starts at its launch, however often its journal is written; no "0 agents" row needed', async () => {
+  const { sessions, dir } = await setup(addRun('wf_new-004', 'wnew4', '10:16:00', {}));
+  const a = await agentsOf(sessions, LIVE());
+  assert.equal(a['wf_new-004'].start, T('10:16:00'));
+  assert.equal(subagents.get(SID).filter((x) => x.wf === 'wf_new-004').length, 0);
+  const journal = path.join(dir, SID, 'subagents', 'workflows', 'wf_new-004', 'journal.jsonl');
+  fs.appendFileSync(journal, '{"type":"started","agentId":"zz","key":"zz"}\n');
+  fs.utimesSync(journal, T('10:20:30') / 1000, T('10:20:30') / 1000);
+  const b = await agentsOf(sessions, LIVE());
+  assert.equal(b['wf_new-004'].start, T('10:16:00'));
+});
+
+test('workflow run: at most 100 of its agents, the newest', async () => {
+  const many = {};
+  for (let i = 0; i < 104; i++) many[`m${String(i).padStart(3, '0')}`] = [`10:${String(10 + Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}`, [{ type: 'result' }]];
+  const { sessions } = await setup(addRun('wf_big-005', 'wbig5', '10:09:00', many));
+  await agentsOf(sessions, LIVE());
+  const kids = subagents.get(SID).filter((x) => x.wf === 'wf_big-005');
+  assert.equal(kids.length, 100);
+  assert.ok(!kids.some((x) => ['m000', 'm001', 'm002', 'm003'].includes(x.id))); // the oldest four left out
+});

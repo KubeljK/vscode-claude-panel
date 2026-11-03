@@ -409,10 +409,13 @@
     const open = !!ui.agents[s.id] || (ui.chip === 'agents' && runningAgents(s) > 0);
     const run = runningAgents(s);
     const n = s.agents.filter((a) => !a.workflow).length;
+    const runs = s.agents.length - n;
+    // A workflow run that hasn't started an agent yet: "1 workflow", not "0 agents".
+    const what = n || !runs ? plural(n, 'agent') : plural(runs, 'workflow');
     return `
           <button class="agents-toggle${open ? ' expanded' : ''}" data-act="agents" aria-expanded="${open}"
                   title="${open ? 'Hide' : 'Show'} subagents">
-            ${icon('chevron')}<span>${plural(n, 'agent')}</span>${run ? `<span class="agents-run">· ${run} running</span>` : ''}
+            ${icon('chevron')}<span>${what}</span>${run ? `<span class="agents-run">· ${run} running</span>` : ''}
           </button>`;
   }
 
@@ -688,6 +691,11 @@
     $('clearFilter').hidden = !ui.filter;
 
     byId = new Map(state.sessions.map((s) => [s.id, s]));
+    if (loaded) {
+      // Workflow runs folded or unfolded by hand: only those still listed.
+      const runs = new Set(state.sessions.flatMap((s) => (s.agents || []).filter((a) => a.workflow).map((a) => a.id)));
+      for (const k of Object.keys(ui.wf)) if (!runs.has(k)) delete ui.wf[k];
+    }
     if (loaded) {
       ui.selected = ui.selected.filter((id) => byId.has(id) && !byId.get(id).open);
     }

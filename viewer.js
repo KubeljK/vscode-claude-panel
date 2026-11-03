@@ -362,10 +362,14 @@ async function readBack(file, end, size) {
   }
 }
 
-/** Where a transcript's subagents live: <session>/subagents/ next to a session, the same folder for an agent. */
+/**
+ * Where a transcript's subagents live: <session>/subagents/ next to a session; the same folder for an agent, also
+ * for one of a Workflow run (<session>/subagents/workflows/<run>/).
+ */
 function agentsDir(file) {
   const dir = path.dirname(file);
-  return path.basename(dir) === 'subagents' ? dir : path.join(dir, path.basename(file, '.jsonl'), 'subagents');
+  const inRun = path.basename(path.dirname(dir)) === 'workflows' && path.basename(path.dirname(path.dirname(dir))) === 'subagents';
+  return path.basename(dir) === 'subagents' || inRun ? dir : path.join(dir, path.basename(file, '.jsonl'), 'subagents');
 }
 
 /** A subagent's transcript, for an id the webview sent: only a plain id, only a file that exists. */
