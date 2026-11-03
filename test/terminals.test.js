@@ -34,3 +34,21 @@ test('startExpired: only after STARTING_MS, never without a start time', () => {
   assert.equal(terminals.startExpired(now - terminals.STARTING_MS - 1, now), true);
   assert.equal(terminals.startExpired(undefined, now), false);
 });
+
+test('pidOf: the shell pid, or undefined when processId fails or never settles', async () => {
+  assert.equal(await terminals.pidOf({ processId: Promise.resolve(4242) }), 4242);
+  assert.equal(await terminals.pidOf({ processId: Promise.reject(new Error('disposed')) }), undefined);
+  const start = Date.now();
+  assert.equal(await terminals.pidOf({ processId: new Promise(() => {}) }, 50), undefined);
+  assert.ok(Date.now() - start < 1000);
+});
+
+test('pendingState: "Starting…" for 30 s, then held without a card until Claude runs or the terminal closes', () => {
+  const now = 1_800_000_000_000;
+  const since = now - 5000;
+  assert.equal(terminals.pendingState({ open: true, running: false, since, now }), 'show');
+  assert.equal(terminals.pendingState({ open: true, running: false, since: now - terminals.STARTING_MS - 1, now }), 'hold');
+  assert.equal(terminals.pendingState({ open: true, running: false, since: undefined, now }), 'show');
+  assert.equal(terminals.pendingState({ open: true, running: true, since, now }), 'drop');
+  assert.equal(terminals.pendingState({ open: false, running: false, since: now - terminals.STARTING_MS - 1, now }), 'drop');
+});

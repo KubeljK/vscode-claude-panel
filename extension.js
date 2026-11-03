@@ -290,7 +290,7 @@ async function pollLive() {
   const shells = new Map();
   await Promise.all(
     openTerminals().map(async (t) => {
-      const pid = await t.processId;
+      const pid = await terminals.pidOf(t, 1000); // a ghost tab's processId may never settle
       if (pid) shells.set(pid, t);
     })
   );
@@ -308,12 +308,13 @@ async function pollLive() {
     next.set(d.sessionId, { ...d, terminal });
   }
 
-  // Terminals we just started, before Claude has registered them.
+  // Terminals we just started, before Claude has registered them: "Starting…" for 30 s, then no card, but still
+  // pending (never reused) until Claude runs there or the terminal closes.
   const running = new Set([...next.values()].map((e) => e.terminal).filter(Boolean));
   for (const [t, id] of pending) {
-    const gone = !openTerminals().includes(t) || running.has(t);
-    if (gone || terminals.startExpired(pendingAt.get(t))) pending.delete(t);
-    else if (id && !next.has(id)) next.set(id, { sessionId: id, status: 'starting', terminal: t });
+    const state = terminals.pendingState({ open: openTerminals().includes(t), running: running.has(t), since: pendingAt.get(t) });
+    if (state === 'drop') pending.delete(t);
+    else if (state === 'show' && id && !next.has(id)) next.set(id, { sessionId: id, status: 'starting', terminal: t });
   }
 
   // Finished, or needs you, while you were looking elsewhere? Claude reports busy → idle when a turn
